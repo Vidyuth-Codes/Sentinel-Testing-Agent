@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sentinel-web",
+      "runtimeExecutable": ".venv\\Scripts\\sentinel.exe",
+      "runtimeArgs": ["web", "--port", "8811"],
+      "port": 8811
+    }
+  ]
+}

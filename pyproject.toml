@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-testing-agent"
+version = "0.2.0"
+description = "Sentinel — agentic QA & bug-detection agent for Odoo 18 (Claude Code engine)"
+readme = "README.md"
+requires-python = ">=3.11"
+# Reasoning runs on the Claude Code CLI (a subprocess), not the Python SDK — so no
+# `anthropic`/`claude-agent-sdk` dependency and no ANTHROPIC_API_KEY.
+dependencies = [
+    "pydantic>=2.6",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+# Phase 3 UI executor. After install: `python -m playwright install chromium`.
+ui = [
+    "playwright>=1.40",
+]
+
+[project.scripts]
+sentinel = "sentinel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

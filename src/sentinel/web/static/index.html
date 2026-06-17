@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sentinel — Odoo Testing Agent</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('sentinel-theme')||'light';}catch(e){document.documentElement.dataset.theme='light';}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  /* "Hotel Night" — warm dark */
+  :root{
+    --bg:#1c1812; --panel:#262019; --panel2:#2f2820; --line:#3e3527;
+    --text:#f1e9da; --muted:#a99b82; --accent:#d9a94e; --accent2:#5cc0a8;
+    --crit:#f0816f; --high:#f0a35a; --med:#e3c46a; --low:#6fc0d0;
+    --codebg:#15110b; --userbg:#33291a; --userborder:#4a3b1e; --btnfg:#1c1812;
+    --gold1:#c6a45e; --gold2:#a9762e;
+  }
+  /* "Hotel Gold" — warm cream + gold (default) */
+  :root[data-theme="light"]{
+    --bg:#f7f1e6; --panel:#fffdf8; --panel2:#f1e8d6; --line:#e4d8bf;
+    --text:#3a3026; --muted:#8a7c63; --accent:#b07d2e; --accent2:#2f8f7e;
+    --crit:#c0392b; --high:#c0682e; --med:#b08a2e; --low:#2f7e8f;
+    --codebg:#f0e7d4; --userbg:#efe3c8; --userborder:#e0d0a9; --btnfg:#ffffff;
+    --gold1:#c6a45e; --gold2:#a9762e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Poppins','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;transition:background .25s ease,color .25s ease}
+  /* gold "hotel" banner — same in both themes */
+  header{display:flex;align-items:center;gap:13px;padding:13px 18px;background:linear-gradient(135deg,var(--gold1),var(--gold2));border-bottom:1px solid rgba(0,0,0,.18);box-shadow:0 2px 10px rgba(0,0,0,.18)}
+  header .logo{width:34px;height:34px;border-radius:9px;background:#fffdf8;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--gold2);box-shadow:0 1px 4px rgba(0,0,0,.2)}
+  header h1{font-size:18px;margin:0;font-weight:700;color:#fff;letter-spacing:.5px}
+  header .sub{color:rgba(255,255,255,.82);font-size:12px}
+  .hright{margin-left:auto;display:flex;align-items:center;gap:10px}
+  header .engine{font-size:12px;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.45);padding:4px 10px;border-radius:20px}
+  header .engine b{color:#fff}
+  .iconbtn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;line-height:1;transition:border-color .15s,background .15s}
+  .iconbtn:hover{border-color:#fff;background:rgba(255,255,255,.22)}
+  .iconbtn:active{transform:scale(.92)}
+  .conn{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;background:var(--panel2);border-bottom:1px solid var(--line);align-items:center}
+  .conn input{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 9px;font-size:12px}
+  .conn input.url{width:170px}.conn input.db{width:110px}.conn input.mod{width:90px}.conn input.path{width:280px}.conn input.cred{width:80px}
+  .conn button{background:var(--accent);color:var(--btnfg);border:0;border-radius:6px;padding:7px 14px;font-weight:650;cursor:pointer;font-size:12px}
+  .conn .chk{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:pointer}
+  .conn button:hover{filter:brightness(1.1)} .conn button:disabled{opacity:.5;cursor:default}
+  main{flex:1;display:flex;min-height:0}
+  .left{flex:0 0 42%;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;
+    transition:flex-basis .3s cubic-bezier(.4,0,.2,1),opacity .22s ease,transform .3s cubic-bezier(.4,0,.2,1)}
+  .right{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0;overflow:hidden;
+    transition:flex-basis .3s cubic-bezier(.4,0,.2,1),opacity .22s ease,transform .3s cubic-bezier(.4,0,.2,1)}
+  .paneltitle{padding:10px 16px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);background:var(--panel)}
+  .paneltitle.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .paneltoggle{background:transparent;border:1px solid var(--line);color:var(--muted);font-size:11px;border-radius:6px;padding:3px 9px;cursor:pointer;text-transform:none;letter-spacing:0;white-space:nowrap;transition:border-color .15s,color .15s,background .15s}
+  .paneltoggle:hover{border-color:var(--accent);color:var(--text);background:var(--panel2)}
+  .paneltoggle:active{transform:scale(.94)}
+  /* map-collapsed: chat grows to full width, System Map slides out + fades right */
+  main.map-collapsed .left{flex-basis:100%;border-right:0}
+  main.map-collapsed .right{opacity:0;transform:translateX(24px)}
+  /* chat-collapsed: System Map grows to full width, chat slides out + fades left */
+  main.chat-collapsed .left{flex-basis:0;opacity:0;transform:translateX(-24px);border-right:0}
+  main.chat-collapsed .right{flex-basis:100%}
+  /* chat */
+  .chat{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+  .msg{max-width:90%;padding:10px 13px;border-radius:10px;font-size:14px;line-height:1.5}
+  .msg.user{align-self:flex-end;background:var(--userbg);border:1px solid var(--userborder)}
+  .msg.bot{align-self:flex-start;background:var(--panel2);border:1px solid var(--line)}
+  .msg.bot p:first-child{margin-top:0}.msg.bot p:last-child{margin-bottom:0}
+  .composer{display:flex;flex-wrap:wrap;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--panel)}
+  .composer input{flex:1 1 220px;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px}
+  .composer button{background:var(--accent);color:var(--btnfg);border:0;border-radius:8px;padding:8px 13px;font-weight:650;cursor:pointer;font-size:13px;white-space:nowrap}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 10px;background:var(--panel)}
+  .chip{font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:14px;padding:4px 10px;cursor:pointer;background:var(--bg)}
+  .chip:hover{border-color:var(--accent)}
+  /* in-chat live activity ("thinking") indicator */
+  .thinking{align-self:flex-start;display:flex;align-items:center;gap:10px;max-width:90%;
+    padding:9px 13px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);
+    font-size:12.5px;font-family:ui-monospace,Consolas,monospace;animation:thinkIn .22s ease}
+  @keyframes thinkIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  .thinking .ring{width:14px;height:14px;flex:none;border-radius:50%;
+    border:2px solid var(--line);border-top-color:var(--accent);animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .thinking .tstep{position:relative;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    background:linear-gradient(90deg,var(--muted) 35%,var(--text) 50%,var(--muted) 65%);
+    background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:shimmer 1.6s linear infinite}
+  @keyframes shimmer{to{background-position:-200% 0}}
+  .markdown pre{background:var(--codebg);padding:10px;border-radius:6px;overflow:auto}
+  .markdown li{margin:2px 0}
+  /* system map */
+  .mapwrap{flex:1;overflow:auto;padding:16px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:12px}
+  .card .n{font-size:22px;font-weight:750;color:var(--accent)}
+  .card .l{font-size:11px;color:var(--muted);text-transform:capitalize}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--panel)}
+  .tag{font-size:10px;padding:1px 6px;border-radius:10px;border:1px solid var(--line)}
+  .tag.new{color:var(--accent2);border-color:var(--accent2)}.tag.ext{color:var(--med);border-color:var(--med)}
+  .empty{color:var(--muted);text-align:center;padding:48px 16px;font-size:14px}
+  .modlink{cursor:pointer;color:var(--accent)} .modlink:hover{text-decoration:underline}
+  code{background:var(--codebg);padding:1px 5px;border-radius:4px;font-size:12px}
+  .markdown h1{font-size:18px}.markdown h2{font-size:15px;color:var(--accent)}
+  .markdown table{margin:8px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">S</div>
+  <div><h1>Sentinel</h1><div class="sub">Agentic QA &amp; bug-detection for Odoo</div></div>
+  <div class="hright">
+    <div class="engine">engine: <b id="engine">…</b></div>
+    <button id="themeBtn" class="iconbtn" title="Toggle light / dark mode" aria-label="Toggle theme">🌙</button>
+  </div>
+</header>
+
+<div class="conn">
+  <input class="url" id="url" placeholder="Odoo URL" />
+  <input class="db" id="db" placeholder="database" />
+  <input class="cred" id="user" placeholder="user" />
+  <input class="cred" id="password" placeholder="password" type="password" />
+  <input class="mod" id="module" placeholder="module" />
+  <input class="path" id="addons" placeholder="addon source path" />
+  <label class="chk" title="Disable TLS certificate verification — only for trusted staging / self-signed hosts"><input type="checkbox" id="insecure"/> Skip TLS verify</label>
+  <button id="understand" title="Deep-dive ONE module (enter its technical name)">Understand</button>
+  <button id="scan" title="Scan the whole instance — list every custom (client-developed) module" style="background:var(--low);color:#fff">Scan Modules</button>
+  <span id="connstatus" class="sub"></span>
+</div>
+
+<main>
+  <section class="left">
+    <div class="paneltitle row">
+      <span>Chat — ask about features, bugs, logic gaps</span>
+      <button id="mapToggle" class="paneltoggle" title="Show/hide the System Map">Hide map ⟩</button>
+    </div>
+    <div class="chat" id="chat"></div>
+    <div class="chips" id="chips"></div>
+    <div class="composer">
+      <input id="msg" placeholder="Ask in plain language — e.g. why does S00437 still show 0 delivered?" />
+      <button id="diagnose" title="Investigate a specific live record — include its reference (e.g. S00437) in your question" style="background:var(--low);color:#fff">🔍 Diagnose</button>
+      <button id="report" title="Make a report — type a flow/area first (e.g. 'sales order processing'), or leave blank to report on what we've discussed" style="background:var(--panel2);color:var(--text);border:1px solid var(--line)">Report</button>
+      <button id="plan" title="One-shot audit → test plan + bug/gap report" style="background:var(--accent2)">Test Plan</button>
+      <button id="send">Send</button>
+    </div>
+  </section>
+  <section class="right">
+    <div class="paneltitle row">
+      <span>System Map — what the addon developed &amp; configured</span>
+      <button id="mapToggleRight" class="paneltoggle" title="Hide the chat — System Map full screen">⟨ Hide chat</button>
+    </div>
+    <div class="mapwrap" id="map"><div class="empty">Click <b>Understand</b> to introspect the live Odoo module.</div></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let CFG = null;
+
+const CONN_KEYS = ['url','db','user','module','addons'];   // password is intentionally NOT persisted
+function loadConn(){ try{ return JSON.parse(localStorage.getItem('sentinel-conn')||'{}'); }catch(e){ return {}; } }
+function saveConn(){
+  const c={}; CONN_KEYS.forEach(k=>c[k]=$(k).value); c.insecure=$('insecure').checked;
+  try{ localStorage.setItem('sentinel-conn', JSON.stringify(c)); }catch(e){}
+}
+
+async function boot(){
+  CFG = await (await fetch('/api/config')).json();
+  $('engine').textContent = CFG.engine;
+  const saved = loadConn();
+  const hasSaved = Object.keys(saved).length > 0;
+  // Prefill from the last-used connection; fall back to server defaults only on first run.
+  CONN_KEYS.forEach(k => $(k).value = (hasSaved ? (saved[k]||'') : (CFG.defaults[k]||'')));
+  $('password').value = hasSaved ? '' : (CFG.defaults.password||'');   // never restore a saved password
+  $('insecure').checked = !!saved.insecure;
+  addBot("Hi — I'm **Sentinel**. Point me at your Odoo module above and click **Understand**. "
+    + "Then ask me to find bugs/logic gaps, or click **Test Plan** for a full audit.");
+  if (CFG.engine !== 'claude-code')
+    addBot("⚠️ *Reasoning engine is in **mock** mode.* Install Claude Code on this machine to "
+      + "power real analysis on your subscription:\n```\nnpm install -g @anthropic-ai/claude-code\nclaude   # sign in\n```");
+  $('chips').innerHTML='';   // examples appear only after connecting, derived from the instance
+}
+
+// Suggestions tailored to a single understood module.
+function chipsForModule(module, r){
+  const out=[`Find logic gaps in ${module}`, `Which models have weak access control?`];
+  const news=(r.models||[]).filter(m=>m.new).slice(0,2);
+  if(news.length) news.forEach(m=> out.push(`What does the ${m.name||m.model} model do?`));
+  else out.push(`What does ${module} customise here?`);
+  return out;
+}
+// Suggestions derived from which business areas are customised in the instance.
+function chipsForDeployment(r){
+  const names=(r.modules||[]).map(m=>m.name).join(' ');
+  const out=[];
+  const add=c=>{ if(!out.includes(c)) out.push(c); };
+  if(/invoice|bill|account/.test(names)) add('Explain the flow of bills');
+  if(/sale/.test(names)) add('Explain the flow of sales orders');
+  if(/purchase/.test(names)) add('Explain the flow of purchase orders');
+  if(/stock|picking|delivery/.test(names)) add('Explain the flow of deliveries');
+  if(/mrp|bom|manufactur|production/.test(names)) add('Explain the flow of manufacturing orders');
+  if(!out.length) add('Explain the flow of sales orders'), add('Explain the flow of bills');
+  return out.slice(0,4);
+}
+
+function addMsg(text, who){
+  const d=document.createElement('div'); d.className='msg '+who;
+  d.innerHTML = who==='bot' ? `<div class="markdown">${marked.parse(text)}</div>` : escapeHtml(text);
+  $('chat').appendChild(d); $('chat').scrollTop=$('chat').scrollHeight;
+}
+const addBot = t => addMsg(t,'bot');
+const addUser = t => addMsg(t,'user');
+function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+function renderChips(items){
+  $('chips').innerHTML='';
+  items.forEach(t=>{const c=document.createElement('div');c.className='chip';c.textContent=t;
+    c.onclick=()=>{$('msg').value=t;send();};$('chips').appendChild(c);});
+}
+
+async function understand(){
+  $('understand').disabled=true; $('connstatus').textContent='connecting…';
+  saveConn();   // remember this connection (minus password) as the last-used one
+  const body={url:$('url').value,db:$('db').value,user:$('user').value,password:$('password').value,
+              module:$('module').value,addons:$('addons').value,verify_ssl:!$('insecure').checked};
+  try{
+    const res=await fetch('/api/introspect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const r=await res.json().catch(()=>({ok:false,error:'server error (HTTP '+res.status+') — check the sentinel web terminal'}));
+    if(!r.ok){ $('connstatus').textContent='❌ '+r.error; $('understand').disabled=false; return; }
+    $('connstatus').textContent=`✓ Odoo ${r.server_version} (uid ${r.uid})`;
+    renderMap(r);
+    renderChips(chipsForModule(body.module, r));
+    addBot(`Understood **${body.module}** — ${r.counts.new_models} new models, ${r.counts.fields_owned} fields, `
+      +`${r.counts.views} views, ${r.counts.access_rules} access rules, ${r.counts.scheduled_actions} crons.`);
+    if(r.warning){
+      let w='⚠️ '+r.warning;
+      if(r.suggestions && r.suggestions.length)
+        w+=`\n\n**Installed modules matching "${body.module}":**\n- `+r.suggestions.join('\n- ');
+      addBot(w);   // empty map → don't generate a misleading overview
+    } else {
+      fetchOverview(body.module);
+    }
+  }catch(e){ $('connstatus').textContent='❌ '+e; }
+  $('understand').disabled=false;
+}
+
+// Scan the whole instance for custom (client-developed) modules — for heavily-customised deployments.
+async function scanDeployment(){
+  $('scan').disabled=true; $('connstatus').textContent='scanning modules…';
+  const body={url:$('url').value,db:$('db').value,user:$('user').value,password:$('password').value,
+              verify_ssl:!$('insecure').checked};
+  try{
+    const res=await fetch('/api/deployment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const r=await res.json().catch(()=>({ok:false,error:'server error (HTTP '+res.status+') — check the terminal'}));
+    if(!r.ok){ $('connstatus').textContent='❌ '+r.error; $('scan').disabled=false; return; }
+    $('connstatus').textContent=`✓ ${r.custom_count} custom of ${r.total} modules`;
+    renderDeployment(r);
+    renderChips(chipsForDeployment(r));
+    addBot(`Found **${r.custom_count} custom modules** (of ${r.total} installed; ${r.standard_count} standard Odoo/OCA). `
+      +`Click any in the System Map panel to Understand it in depth. Summarising the customisations…`);
+    fetchDeploymentOverview(body);
+  }catch(e){ $('connstatus').textContent='❌ '+e; }
+  $('scan').disabled=false;
+}
+
+function renderDeployment(r){
+  const cards=`<div class="cards">`
+    +`<div class="card"><div class="n">${r.custom_count}</div><div class="l">custom modules</div></div>`
+    +`<div class="card"><div class="n">${r.total}</div><div class="l">installed</div></div>`
+    +`<div class="card"><div class="n">${r.standard_count}</div><div class="l">standard</div></div></div>`;
+  const rows=r.modules.map(m=>`<tr><td><code class="modlink" data-mod="${m.name}">${m.name}</code>`
+    +`${m.application?' <span class="tag new">app</span>':''}</td>`
+    +`<td>${escapeHtml(m.summary||'')}</td><td>${escapeHtml(m.author||'')}</td></tr>`).join('');
+  $('map').innerHTML=cards+`<table><thead><tr><th>Custom Module</th><th>Summary</th><th>Author</th></tr></thead><tbody>${rows}</tbody></table>`;
+  $('map').querySelectorAll('.modlink').forEach(el=>el.onclick=()=>{$('module').value=el.dataset.mod; understand();});
+}
+
+async function fetchDeploymentOverview(body){
+  if(CFG && CFG.engine!=='claude-code') return;
+  const think=makeThinking('summarising the customisations…');
+  try{
+    const r=await (await fetch('/api/deployment/overview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    think.remove();
+    if(r.ok && r.markdown) addBot(r.markdown);
+    else if(r.error) addBot('_(Customisation overview unavailable: '+r.error+')_');
+  }catch(e){ think.remove(); }
+}
+
+async function fetchOverview(module){
+  if(CFG && CFG.engine!=='claude-code') return;   // needs the real engine; skip in mock
+  const think=makeThinking('reading the module to summarise it…');
+  try{
+    const res=await fetch('/api/overview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({module})});
+    const r=await res.json().catch(()=>({ok:false,error:'HTTP '+res.status}));
+    think.remove();
+    if(r.ok && r.markdown){
+      addBot(r.markdown);
+    } else if(!res.ok && res.status===404){
+      addBot('_(App overview endpoint not found — restart the `sentinel web` server to load it.)_');
+    } else if(r.error){
+      addBot('_(App overview unavailable: '+r.error+')_');
+    }
+  }catch(e){ think.remove(); addBot('_(App overview unavailable: '+e+')_'); }
+}
+
+function renderMap(r){
+  const order=['new_models','extended_models','fields_owned','views','actions','menus','access_rules','record_rules','scheduled_actions','automations','sequences'];
+  let cards='<div class="cards">';
+  order.forEach(k=>{ if(k in r.counts) cards+=`<div class="card"><div class="n">${r.counts[k]}</div><div class="l">${k.replace(/_/g,' ')}</div></div>`; });
+  cards+='</div>';
+  let rows=r.models.map(m=>`<tr><td><code>${m.model}</code></td><td>${m.name||''}</td><td>${m.fields}</td>`
+    +`<td><span class="tag ${m.new?'new':'ext'}">${m.new?'new':'extended'}</span></td></tr>`).join('');
+  $('map').innerHTML=cards+`<table><thead><tr><th>Model</th><th>Label</th><th>Fields</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function scrollChat(){ $('chat').scrollTop=$('chat').scrollHeight; }
+const base = p => String(p).split(/[\\/]/).pop();
+
+function toolLabel(ev){
+  const verb={Read:'Reading',Grep:'Searching',Glob:'Scanning'}[ev.name]||ev.name||'Working';
+  const inp=ev.input||{};
+  if(inp.file_path) return `${verb} ${base(inp.file_path)}`;
+  if(inp.pattern)  return `${verb} “${inp.pattern}”`;
+  if(inp.path)     return `${verb} ${base(inp.path)}`;
+  return verb+'…';
+}
+
+// In-chat animated "thinking" indicator (spinner + shimmering current step).
+function makeThinking(initial){
+  const el=document.createElement('div'); el.className='thinking';
+  el.innerHTML='<span class="ring"></span><span class="tstep"></span>';
+  const stepEl=el.querySelector('.tstep'); stepEl.textContent=initial||'thinking…';
+  $('chat').appendChild(el); scrollChat();
+  return {
+    step(t){ if(t) stepEl.textContent=t; },
+    remove(){ if(el.parentNode) el.parentNode.removeChild(el); },
+  };
+}
+
+function auditSummaryMd(ev){
+  const r=ev.rollup||{}, cov=ev.coverage||{};
+  const sev=[['critical','🔴'],['high','🟠'],['medium','🟡'],['low','🔵'],['info','⚪']]
+    .filter(([k])=>r[k]).map(([k,e])=>`${e} ${r[k]} ${k}`).join(' · ');
+  let s=`**✅ Audit complete — ${ev.findings||0} findings**`;
+  if(sev) s+=`\n\n${sev}`;
+  s+=`\n\n**${ev.test_cases||0} test cases** · coverage ${cov.covered||0} covered / ${cov.partial||0} partial / ${cov.gap||0} gap`;
+  if(ev.saved_to){
+    const files=Object.entries(ev.saved_to).filter(([k])=>k!=='dir').map(([,v])=>'`'+base(v)+'`');
+    if(files.length) s+=`\n\nSaved: ${files.join(' · ')}`;
+  }
+  if(ev.structured===false) s+=`\n\n_⚠️ structured extraction failed — Markdown report saved; findings.json may be empty._`;
+  return s;
+}
+
+async function streamRun(url, body, opening, onComplete){
+  if(opening) addUser(opening);
+  const bubble=document.createElement('div'); bubble.className='msg bot';
+  const md=document.createElement('div'); md.className='markdown'; bubble.appendChild(md);
+  $('chat').appendChild(bubble);
+  const think=makeThinking('starting up…');
+  let acc='';
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
+    while(true){
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true}); let i;
+      while((i=buf.indexOf('\n\n'))>=0){
+        const raw=buf.slice(0,i); buf=buf.slice(i+2);
+        if(!raw.startsWith('data:')) continue;
+        let ev; try{ ev=JSON.parse(raw.slice(5).trim()); }catch(e){ continue; }
+        if(ev.type==='text'){ acc+=ev.text; md.innerHTML=marked.parse(acc); think.step('writing the report…'); scrollChat(); }
+        else if(ev.type==='tool'){ think.step(toolLabel(ev)); }
+        else if(ev.type==='status'){ think.step(ev.message||'working…'); }
+        else if(ev.type==='result'){
+          if(!acc && ev.result){ acc=ev.result; md.innerHTML=marked.parse(acc); }
+        }
+        else if(ev.type==='summary'){
+          think.remove();
+          addBot(auditSummaryMd(ev));
+          scrollChat();
+        }
+        else if(ev.type==='error'){ think.remove(); md.innerHTML=marked.parse((acc?acc+'\n\n':'')+'❌ '+ev.message); }
+      }
+    }
+  }catch(e){ md.innerHTML=marked.parse('❌ '+e); }
+  think.remove();
+  scrollChat();
+  if(onComplete && acc) onComplete(acc);
+}
+
+function cleanReportContent(md){
+  let t = md;
+  // Strip trailing Coverage section (## Coverage / ### Coverage)
+  t = t.replace(/\n{1,2}#{1,3}\s*Coverage[\s\S]*$/i, '');
+  // Strip trailing suggestion / CTA paragraphs ("To turn this into...", "Tell me which...", etc.)
+  t = t.replace(/\n{1,2}(\*\*)?To (turn|make|get|produce|create) this[\s\S]*$/i, '');
+  t = t.replace(/\n{1,2}(\*\*)?To get a (real|concrete|full|deeper)[\s\S]*$/i, '');
+  // Strip "Did NOT reach" stray sentences outside the Coverage block
+  t = t.replace(/\n[^\n]*Did NOT reach[^\n]*/gi, '');
+  // Strip lines that are purely module-count summaries (e.g. "Read: the full System Map for...")
+  t = t.replace(/\n[^\n]*\bSystem Map\b[^\n]*\(model\/field[\s\S]*?\)\./gi, '');
+  return t.trimEnd();
+}
+
+function downloadReportPdf(markdownText, topic){
+  const cleaned = cleanReportContent(markdownText);
+  const slug = (topic||'report').replace(/[^a-z0-9_-]/gi,'-').toLowerCase();
+  const date = new Date().toISOString().slice(0,10);
+  const title = `Sentinel Report — ${topic||'Discussion'} — ${date}`;
+  const bodyHtml = marked.parse(cleaned);
+  const win = window.open('','_blank');
+  if(!win){ alert('Pop-up blocked — please allow pop-ups for this page and try again.'); return; }
+  win.document.write(`<!doctype html><html><head>
+<meta charset="utf-8"/>
+<title>${title}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Poppins','Segoe UI',system-ui,sans-serif;font-size:13px;line-height:1.65;color:#2a2218;padding:48px 56px;max-width:900px;margin:0 auto}
+  h1{font-size:20px;font-weight:700;color:#1a1510;margin:0 0 4px}
+  h2{font-size:15px;font-weight:600;color:#b07d2e;margin:28px 0 8px;border-bottom:1px solid #e4d8bf;padding-bottom:4px}
+  h3{font-size:13px;font-weight:600;color:#3a3026;margin:18px 0 6px}
+  h4{font-size:12.5px;font-weight:600;margin:14px 0 4px}
+  p{margin:6px 0 10px}
+  ul,ol{padding-left:20px;margin:6px 0 10px}
+  li{margin:3px 0}
+  code{background:#f0e7d4;padding:1px 5px;border-radius:3px;font-size:11.5px;font-family:Consolas,monospace}
+  pre{background:#f0e7d4;padding:12px 14px;border-radius:5px;overflow:auto;margin:10px 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}
+  th{background:#f1e8d6;text-align:left;padding:6px 8px;font-weight:600;border:1px solid #e4d8bf}
+  td{padding:6px 8px;border:1px solid #e4d8bf;vertical-align:top}
+  strong{font-weight:600}
+  .header{border-bottom:2px solid #b07d2e;padding-bottom:12px;margin-bottom:28px}
+  .meta{font-size:11px;color:#8a7c63;margin-top:4px}
+  @media print{body{padding:0} @page{margin:20mm 18mm}}
+</style>
+</head><body>
+<div class="header">
+  <h1>Sentinel QA Report</h1>
+  <div class="meta">${topic ? 'Topic: '+topic+' &nbsp;·&nbsp; ' : ''}Generated: ${date}</div>
+</div>
+${bodyHtml}
+<script>window.onload=function(){window.print();}<\/script>
+</body></html>`);
+  win.document.close();
+}
+
+// Does the text name a specific document (S00437, INV/2026/00010, JX20260224…)?
+function hasReference(text){
+  const rx=/\b[A-Z][A-Z0-9]*(?:[/_-][A-Z0-9]+)*\b/g;
+  return (text.match(rx)||[]).some(t=>/\d/.test(t));
+}
+// Is the user asking to explain a flow/process/lifecycle?
+function isFlowRequest(text){
+  return /\b(flow|process|lifecycle|life ?cycle|walk ?through|step[- ]?by[- ]?step|stages?)\b/i.test(text)
+      || /\bhow (do|does|is|are|can)\b.*\b(work|created|processed|handled|confirmed|posted|paid|delivered|invoiced)\b/i.test(text);
+}
+
+async function explainFlow(){
+  const q=$('msg').value.trim(); $('msg').value='';
+  await streamRun('/api/flow/stream', {
+    url:$('url').value, db:$('db').value, user:$('user').value, password:$('password').value,
+    module:$('module').value, verify_ssl:!$('insecure').checked, question:q,
+  }, '🔀 '+q);
+}
+
+async function send(){
+  const m=$('msg').value.trim(); if(!m) return;
+  if(hasReference(m)) return diagnose();    // names a specific record → its live data
+  if(isFlowRequest(m)) return explainFlow(); // explain a flow → ground it in real records
+  $('msg').value='';
+  await streamRun('/api/chat/stream',{message:m,module:$('module').value,addons:$('addons').value}, m);
+}
+
+async function audit(){
+  await streamRun('/api/audit/stream',{module:$('module').value,addons:$('addons').value},
+    'Generate a full test plan + bug/gap report');
+}
+
+// Make Report: scope = the input text (a flow/area) if typed, else "what we've discussed".
+// Routed through the chat session (resume) so it has full conversation context + source + skill.
+async function makeReport(){
+  const scope=$('msg').value.trim(); $('msg').value='';
+  const ask = scope
+    ? `Make a report on the "${scope}" functional flow/area of this module. Follow the "make report" `
+      + `format from your instructions: explain the process step by step in plain language, then list `
+      + `findings and gaps in that flow with file:line evidence.`
+    : `Make a report on what we've been discussing (if nothing specific came up, report on the whole `
+      + `module). Follow the "make report" format: explain the process step by step in plain language, `
+      + `then list the findings and gaps with file:line evidence.`;
+  const mod=$('module').value;
+  const pdfTopic = scope || 'discussion';
+  await streamRun('/api/chat/stream',
+    {message:ask, module:mod, addons:$('addons').value},
+    scope ? `📋 Report: ${scope}` : '📋 Report: our discussion',
+    acc => downloadReportPdf(acc, pdfTopic));
+}
+
+// Diagnose: investigate a specific live record. Reads the record's real data over RPC
+// (needs the connection details) and reasons over it — no source code involved.
+async function diagnose(){
+  const q=$('msg').value.trim();
+  if(!q){ addBot('Type your question first — include the record reference, e.g. *"why does S00437 still show 0 delivered?"*'); return; }
+  $('msg').value='';
+  await streamRun('/api/investigate/stream', {
+    url:$('url').value, db:$('db').value, user:$('user').value, password:$('password').value,
+    module:$('module').value, verify_ssl:!$('insecure').checked, question:q,
+  }, '🔍 '+q);
+}
+
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $('themeBtn').textContent = t==='light' ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  const next = document.documentElement.dataset.theme==='light' ? 'dark' : 'light';
+  try{ localStorage.setItem('sentinel-theme', next); }catch(e){}
+  applyTheme(next);
+}
+
+// Layout is one of: 'both' | 'map-collapsed' (chat full) | 'chat-collapsed' (map full).
+let LAYOUT = 'both';
+function applyLayout(state){
+  const m = document.querySelector('main');
+  m.classList.toggle('map-collapsed', state === 'map-collapsed');
+  m.classList.toggle('chat-collapsed', state === 'chat-collapsed');
+  $('mapToggle').textContent = state === 'map-collapsed' ? '⟨ Show map' : 'Hide map ⟩';
+  $('mapToggleRight').textContent = state === 'chat-collapsed' ? 'Show chat ⟩' : '⟨ Hide chat';
+}
+function setLayout(state){
+  LAYOUT = ['both', 'map-collapsed', 'chat-collapsed'].includes(state) ? state : 'both';
+  try{ localStorage.setItem('sentinel-layout', LAYOUT); }catch(e){}
+  applyLayout(LAYOUT);
+}
+const toggleMap  = () => setLayout(LAYOUT === 'map-collapsed' ? 'both' : 'map-collapsed');   // chat-side: hide/show the map
+const toggleChat = () => setLayout(LAYOUT === 'chat-collapsed' ? 'both' : 'chat-collapsed');  // map-side: hide/show the chat
+
+$('understand').onclick=understand;
+$('scan').onclick=scanDeployment;
+$('send').onclick=send;
+$('plan').onclick=audit;
+$('report').onclick=makeReport;
+$('diagnose').onclick=diagnose;
+$('themeBtn').onclick=toggleTheme;
+$('mapToggle').onclick=toggleMap;
+$('mapToggleRight').onclick=toggleChat;
+$('msg').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+applyTheme(document.documentElement.dataset.theme==='light' ? 'light' : 'dark');
+setLayout(localStorage.getItem('sentinel-layout') || 'both');
+boot();
+</script>
+</body>
+</html>

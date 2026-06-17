@@ -1,0 +1,14 @@
+.venv/
+.env
+output/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.sentinel/
+node_modules/
+dist/
+build/
+
+.workspace/
