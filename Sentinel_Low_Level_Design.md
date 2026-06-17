@@ -74,7 +74,7 @@ UI renders chat + a System Map dashboard. Target-instance *execution* (Phase 3) 
 ```
 sentinel-testing-agent/
 ├── src/sentinel/
-│   ├── cli.py                 ← `sentinel web | introspect | scan-addons`
+│   ├── cli.py                 ← `sentinel web | introspect | scan-addons | audit | run-tests | run-ui`
 │   ├── paths.py               ← output dir resolution (output/<run>/)
 │   ├── core/
 │   │   └── models.py          ← Finding, CodeLocation, Evidence, RunResult + taxonomy (the findings schema)
@@ -332,8 +332,8 @@ frequently leave the scaffold's `author = "Odoo S.A."`. A module is treated as *
 its author is Odoo/OCA **AND** its version is the 4-part `series.x.y` form (e.g. `18.0.1.3`). Custom
 partner modules keep the scaffold's **5-part** version (`18.0.1.0.5`), so they're caught even with a
 faked author; non-Odoo authors (e.g. a client company) are caught regardless of version. Validated on
-NLC staging: author-only found **1** custom module; the combined rule found the real **35**
-(`*_customisation`, `*_approval`, `bom_*`, `pcd_*`, `studio_customization`, …).
+a real client instance: author-only found **1** custom module; the combined rule correctly identified
+the full set of custom modules across multiple business areas.
 
 Exposed at `POST /api/deployment` (the list) + `POST /api/deployment/overview` (an engine narrative
 grouping the customisations by business area) and the **Scan Modules** button — each custom module is
@@ -363,9 +363,7 @@ question ─▶ extract_references()  ─ pull "S00437" / "INV/2026/00010" / "WH
 - **Read-only** — only `search_read`/`read`; never writes. Needs no source code (it's about *data*, not code).
 - **Grounded** — the answer cites the record's actual related docs, statuses, and history; the prompt
   forbids inventing values and tells the agent to say what extra record/field it would need.
-- Exposed at `POST /api/investigate/stream` and the **🔍 Diagnose** button. Validated live against
-  `assetz`-adjacent staging (correctly diagnosed a real order's pending-delivery / not-invoiced state
-  and flagged a 57-line order with only one delivery as anomalous).
+- Exposed at `POST /api/investigate/stream` and the **🔍 Diagnose** button.
 
 ---
 
@@ -405,11 +403,14 @@ UI smoke crawl, §10). The old generic `plan`/`audit` pipeline commands were rem
 
 ## 8. Frontend — `src/sentinel/web/static/index.html`
 
-A dark-theme **single-page app** (vanilla HTML/JS, `marked.js` for Markdown). Layout: a header with
-engine/connection status, a connection form (prefilled for `assetz`), and a split pane — **chat** on
-one side, the **System Map dashboard** (counts, models, understanding report) on the other.
+A **single-page app** with light ("Hotel Gold") and dark ("Hotel Night") themes (vanilla HTML/JS,
+`marked.js` for Markdown). Layout: a header with engine/connection status, a connection form
+(defaults overridable via environment variables), and a split pane — **chat** on one side, the
+**System Map dashboard** (counts, models, understanding report) on the other.
 **Understand** calls `/api/introspect`; **chat** streams from `/api/chat/stream`; a one-shot audit
-streams from `/api/audit/stream`.
+streams from `/api/audit/stream`; **Report** streams a functional flow report and auto-downloads
+it as a text-extractable PDF (browser print-window, content-cleaned — no Coverage notes or
+suggestion paragraphs).
 
 **Planned upgrade (roadmap):** migrate to **React** (with Redux for run/chat/findings state and a
 stream helper for SSE) once Phase 2 stabilises. The HTML/JS UI is sufficient until then. (Req §13 Q4)
@@ -505,21 +506,21 @@ current executors run directly against the configured Odoo.
 | **1** | `odoo/` tools + `core/models` | XML-RPC client, `build_system_map` → SystemMap, `addon_scan`, understanding report | FR-01–04 | ✅ Done |
 | **1** | `web/` + `static/index.html` | FastAPI + SPA: Understand button (live introspection) + chat/dashboard | FR-21–23 | ✅ Done |
 | **2** | `engine/claude_code` + `engine/skill` | Headless Claude Code engine (sync+stream), Odoo-QA skill injection, subscription billing | FR-05–07 | ✅ Done |
-| **2** | `audit/` + `/api/chat`, `/api/audit`, `sentinel audit` | Real gap analysis, bug findings, and test-plan generation grounded in `file:line`; two-pass structured output (`findings.json` + `test_plan.json`) | FR-08–12, FR-18–21 | ✅ Built — validated against `assetz` |
-| **3** | `execute/` (generate + provision + runner + report) | RPC flow executor: Claude-generated op-sequences run over XML-RPC against a cloned DB; pass/fail/error + results report; `sentinel run-tests` | FR-13, FR-14, FR-17 | ✅ Built — validated against `assetz` |
-| **3** | `execute/ui_playwright` | Playwright UI smoke crawl: console/JS/network errors + error dialogs + screenshots per view; `sentinel run-ui` | FR-15 | ✅ Built — validated against `assetz` |
+| **2** | `audit/` + `/api/chat`, `/api/audit`, `sentinel audit` | Real gap analysis, bug findings, and test-plan generation grounded in `file:line`; two-pass structured output (`findings.json` + `test_plan.json`) | FR-08–12, FR-18–21 | ✅ Built |
+| **3** | `execute/` (generate + provision + runner + report) | RPC flow executor: Claude-generated op-sequences run over XML-RPC against a cloned DB; pass/fail/error + results report; `sentinel run-tests` | FR-13, FR-14, FR-17 | ✅ Built |
+| **3** | `execute/ui_playwright` | Playwright UI smoke crawl: console/JS/network errors + error dialogs + screenshots per view; `sentinel run-ui` | FR-15 | ✅ Built |
 | **3** | Docker sandbox | Fully isolated, disposable execution environment | FR-16, NFR-02 | ⬜ Planned |
 | **—** | React frontend | Migrate the HTML/JS SPA to React/Redux | — | ⬜ Planned |
 
 ### 11.1 Per-phase acceptance highlights
-- **Phase 1 (understand):** `assetz` introspects to the correct new/extended model split and counts;
+- **Phase 1 (understand):** a target module introspects to the correct new/extended model split and counts;
   the understanding report renders — with no LLM (AC-1).
 - **Phase 2 (reason):** one `/api/audit` call returns a test plan + bug/gap report whose findings each
   cite a real `file:line`/`model.method`; the run is billed to the subscription with no
   `ANTHROPIC_API_KEY` present (AC-2, AC-3).
 - **Phase 2 (degradation):** with no Claude Code CLI installed, the UI still runs and chat falls back
   to the mock engine (AC-5).
-- **Phase 3 (execute):** test cases run against a duplicate DB in the sandbox; production is never
+- **Phase 3 (execute):** test cases run against a duplicate DB; production is never
   written to; results are pass/fail with evidence (AC-6).
 
 ---
@@ -549,7 +550,7 @@ User ─POST /api/introspect─▶ FastAPI ─▶ OdooRPCClient.authenticate()
 
 User ─POST /api/audit/stream─▶ FastAPI ─build_system_prompt(skill + System Map)─▶ ClaudeCodeEngine
    engine ─`claude -p` (Read/Grep/Glob over the addon, subscription)─▶ stream text/tool events ─▶ User
-   engine ─result─▶ write output/audit-<module>/test_plan.md ─▶ return markdown + cost_usd
+   engine ─result─▶ write output/audit-<module>/{report.md, findings.json, test_plan.json} ─▶ return markdown + cost_usd
 ```
 
 **Phase 3 execution (planned):**
@@ -564,7 +565,7 @@ test plan ─▶ Docker sandbox: copy DB → duplicate
 
 ## 14. Future Extensions (post-current)
 
-- **Phase 3 build-out** — RPC flow executor, Playwright UI executor, Docker sandbox + duplicate DB.
+- **Phase 3 completion** — Docker sandbox (fully isolated, disposable execution environment); RPC flow executor and Playwright UI crawl are already built.
 - **React frontend** — migrate the HTML/JS SPA (Redux state + SSE stream helper).
 - **Structured findings** — have `/api/audit` emit `core/models.Finding[]` JSON (not only Markdown)
   so results persist as `output/<run>/findings.json`.

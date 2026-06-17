@@ -112,7 +112,4 @@ conversation. Structure it as a **functional flow report**:
    module's real models/actions/states (mark each step with the model/method when useful).
 3. **Findings & gaps** — the bugs and logic gaps in *this flow/scope*, in the Findings format above
    (with the `Flow:` line for logic gaps). If you find none, say so explicitly.
-4. **Coverage** — what you examined and what you did NOT reach.
 For a whole-module report this is the same as the test-plan + findings, organised by flow.
-
-End every report with a short **Coverage** note: what you read and what you did NOT get to.

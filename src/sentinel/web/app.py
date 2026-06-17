@@ -7,7 +7,7 @@ from pathlib import Path
 
 import json as _json
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -26,44 +26,125 @@ from sentinel.odoo.investigate import (
 )
 from sentinel.odoo.report import render_system_map_markdown
 from sentinel.odoo.rpc import OdooAuthError, OdooRPCError
+from sentinel.web import auth
 
 app = FastAPI(title="Sentinel — Odoo Testing Agent", version=__version__)
 
 _STATIC = Path(__file__).parent / "static"
 _ENGINE = ClaudeCodeEngine()
 
-# Cached per-module state so chat has context + conversation continuity.
-_SUMMARY: dict[str, str] = {}      # module -> System Map summary (LLM brief)
-_SESSION: dict[str, str] = {}      # module -> Claude Code session_id (multi-turn)
-_DEPLOY: dict[str, str] = {}       # db -> rendered custom-module list (for the deployment overview)
+# Per-user, per-module session state — keyed by (username, module) or (username, db).
+_SUMMARY: dict[tuple[str, str], str] = {}
+_SESSION: dict[tuple[str, str], str] = {}
+_DEPLOY: dict[tuple[str, str], str] = {}
 
 _DEFAULTS = {
-    "url": os.environ.get("SENTINEL_ODOO_URL", "http://localhost:8069"),
-    "db": os.environ.get("SENTINEL_ODOO_DB", "assetz_db"),
-    "user": os.environ.get("SENTINEL_ODOO_USER", "admin"),
-    "password": os.environ.get("SENTINEL_ODOO_PASSWORD", "admin"),
-    "module": os.environ.get("SENTINEL_MODULE", "assetz"),
-    "addons": os.environ.get("SENTINEL_ADDONS", r"C:\Users\vidyu\Desktop\assests_tk\assetz"),
+    "url":      os.environ.get("SENTINEL_ODOO_URL", "http://localhost:8069"),
+    "db":       os.environ.get("SENTINEL_ODOO_DB", ""),
+    "user":     os.environ.get("SENTINEL_ODOO_USER", "admin"),
+    "password": os.environ.get("SENTINEL_ODOO_PASSWORD", ""),
+    "module":   os.environ.get("SENTINEL_MODULE", ""),
+    "addons":   os.environ.get("SENTINEL_ADDONS", None),
 }
 
+
+# --- auth dependency ----------------------------------------------------------
+
+def get_current_user(authorization: str = Header(default="")) -> dict:
+    token = authorization.removeprefix("Bearer ").strip()
+    user = auth.verify_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired token. Please log in again.")
+    return user
+
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
+
+
+# --- public routes (no auth) --------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8")
 
 
+@app.get("/api/auth/status")
+def auth_status() -> dict:
+    """Returns whether any users exist — used by the UI to show login vs first-run setup."""
+    return {"has_users": auth.users_exist()}
+
+
+class LoginReq(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(req: LoginReq) -> dict:
+    user = auth.authenticate(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = auth.create_token(user["username"], user["role"])
+    return {"token": token, "username": user["username"], "role": user["role"]}
+
+
+@app.post("/api/auth/setup")
+def setup(req: LoginReq) -> dict:
+    """Create the first admin account. Only callable when no users exist yet."""
+    if auth.users_exist():
+        raise HTTPException(status_code=403, detail="Setup already complete. Please log in.")
+    auth.create_user(req.username, req.password, role="admin")
+    token = auth.create_token(req.username, "admin")
+    return {"token": token, "username": req.username, "role": "admin"}
+
+
+# --- auth-protected user management (admin only) ------------------------------
+
+@app.get("/api/auth/users")
+def get_users(user: dict = Depends(require_admin)) -> dict:
+    return {"users": auth.list_users()}
+
+
+class CreateUserReq(BaseModel):
+    username: str
+    password: str
+    role: str = "user"
+
+
+@app.post("/api/auth/users")
+def create_user(req: CreateUserReq, user: dict = Depends(require_admin)) -> dict:
+    if not auth.create_user(req.username, req.password, req.role):
+        raise HTTPException(status_code=400, detail="Username already exists.")
+    return {"ok": True}
+
+
+@app.delete("/api/auth/users/{username}")
+def delete_user(username: str, user: dict = Depends(require_admin)) -> dict:
+    if username == user["username"]:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+    if not auth.delete_user(username):
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {"ok": True}
+
+
+# --- config (auth-protected) --------------------------------------------------
+
 @app.get("/api/config")
-def config() -> dict:
+def config(user: dict = Depends(get_current_user)) -> dict:
     return {
         "version": __version__,
         "defaults": _DEFAULTS,
         "engine": "claude-code" if _ENGINE.available() else "mock",
         "cli_path": _ENGINE.cli_path,
+        "username": user["username"],
+        "role": user["role"],
     }
 
 
-# --- introspection (deterministic, no LLM) -----------------------------------
-
+# --- introspection (deterministic, no LLM) ------------------------------------
 
 class IntrospectReq(BaseModel):
     url: str = _DEFAULTS["url"]
@@ -76,22 +157,18 @@ class IntrospectReq(BaseModel):
 
 
 def _db_hint(url: str, verify_ssl: bool) -> str:
-    """When the given DB name is wrong, try to list the real ones (if the server allows it),
-    else point the user at where to find the database name."""
     try:
         from sentinel.odoo.rpc import OdooDbAdmin
         dbs = OdooDbAdmin(url, "", verify_ssl=verify_ssl).list()
         if dbs:
             return "  → Available databases on this server: " + ", ".join(dbs)
-    except Exception:  # noqa: BLE001 — listing is often disabled on hosted instances
+    except Exception:
         pass
     return ("  → The database name looks wrong (it's usually NOT the URL subdomain). Find it in "
             "Odoo: Settings → activate developer mode (shows the db), or on the Odoo.sh branch page.")
 
 
 def _module_check(client: OdooRPCClient, module: str, counts: dict) -> tuple[str | None, list[str]]:
-    """If the System Map is empty, work out why: wrong technical name, or a data-only module.
-    Returns (warning, suggestions) — suggestions are installed modules whose name/description match."""
     if counts.get("new_models") or counts.get("extended_models"):
         return None, []
     try:
@@ -112,7 +189,7 @@ def _module_check(client: OdooRPCClient, module: str, counts: dict) -> tuple[str
 
 
 @app.post("/api/introspect")
-def introspect(req: IntrospectReq) -> dict:
+def introspect(req: IntrospectReq, current_user: dict = Depends(get_current_user)) -> dict:
     client = OdooRPCClient(req.url, req.db, req.user, req.password, verify_ssl=req.verify_ssl)
     try:
         version = client.version().get("server_version")
@@ -132,8 +209,9 @@ def introspect(req: IntrospectReq) -> dict:
 
     counts = smap.counts()
     warning, suggestions = _module_check(client, req.module, counts)
-    _SUMMARY[req.module] = summarize_system_map(smap, scan)
-    _SESSION.pop(req.module, None)  # fresh understanding → fresh conversation
+    key = (current_user["username"], req.module)
+    _SUMMARY[key] = summarize_system_map(smap, scan)
+    _SESSION.pop(key, None)  # fresh understanding → fresh conversation
 
     return {
         "ok": True,
@@ -150,8 +228,7 @@ def introspect(req: IntrospectReq) -> dict:
     }
 
 
-# --- deployment scan: all custom modules (for heavily-customised instances) --
-
+# --- deployment scan ----------------------------------------------------------
 
 class DeploymentReq(BaseModel):
     url: str = _DEFAULTS["url"]
@@ -162,15 +239,15 @@ class DeploymentReq(BaseModel):
 
 
 @app.post("/api/deployment")
-def deployment(req: DeploymentReq) -> dict:
-    """Deterministic: list the instance's custom (client-developed) modules vs standard ones."""
+def deployment(req: DeploymentReq, current_user: dict = Depends(get_current_user)) -> dict:
     client = OdooRPCClient(req.url, req.db, req.user, req.password, verify_ssl=req.verify_ssl)
     try:
         client.authenticate()
         scan = scan_deployment(client)
     except (OdooAuthError, OdooRPCError) as exc:
         return {"ok": False, "error": str(exc)}
-    _DEPLOY[req.db] = render_deployment(scan)
+    key = (current_user["username"], req.db)
+    _DEPLOY[key] = render_deployment(scan)
     return {
         "ok": True,
         "total": scan["total"],
@@ -181,9 +258,8 @@ def deployment(req: DeploymentReq) -> dict:
 
 
 @app.post("/api/deployment/overview")
-def deployment_overview(req: DeploymentReq) -> dict:
-    """Engine narrative: group the custom modules by business area and summarise the customisations."""
-    rendered = _DEPLOY.get(req.db)
+def deployment_overview(req: DeploymentReq, current_user: dict = Depends(get_current_user)) -> dict:
+    rendered = _DEPLOY.get((current_user["username"], req.db))
     if not rendered:
         return {"ok": False, "error": "Run the deployment scan first."}
     if not _ENGINE.available():
@@ -204,7 +280,7 @@ def deployment_overview(req: DeploymentReq) -> dict:
     return {"ok": True, "engine": "claude-code", "markdown": result.text, "cost_usd": result.cost_usd}
 
 
-# --- app overview (business-level, System Map only — no source needed) -------
+# --- app overview -------------------------------------------------------------
 
 _OVERVIEW_SYSTEM = (
     "You are a product analyst describing a SPECIFIC Odoo module exactly as it was built and configured "
@@ -231,8 +307,8 @@ class OverviewReq(BaseModel):
 
 
 @app.post("/api/overview")
-def overview(req: OverviewReq) -> dict:
-    summary = _SUMMARY.get(req.module, "")
+def overview(req: OverviewReq, current_user: dict = Depends(get_current_user)) -> dict:
+    summary = _SUMMARY.get((current_user["username"], req.module), "")
     if not summary:
         return {"ok": False, "error": "Run Understand first."}
     if not _ENGINE.available():
@@ -248,8 +324,7 @@ def overview(req: OverviewReq) -> dict:
     return {"ok": True, "engine": "claude-code", "markdown": result.text, "cost_usd": result.cost_usd}
 
 
-# --- reasoning (Claude Code engine, with mock fallback) ----------------------
-
+# --- reasoning (Claude Code engine, with mock fallback) -----------------------
 
 class ChatReq(BaseModel):
     message: str
@@ -258,8 +333,9 @@ class ChatReq(BaseModel):
 
 
 @app.post("/api/chat")
-def chat(req: ChatReq) -> dict:
-    summary = _SUMMARY.get(req.module, "")
+def chat(req: ChatReq, current_user: dict = Depends(get_current_user)) -> dict:
+    key = (current_user["username"], req.module)
+    summary = _SUMMARY.get(key, "")
     if not _ENGINE.available():
         return {"engine": "mock", "reply": _mock_reply(req.message, summary)}
     src = _source_dir(req.addons)
@@ -268,17 +344,16 @@ def chat(req: ChatReq) -> dict:
             req.message,
             code_dir=src,
             system_prompt=build_system_prompt(summary, has_source=src is not None),
-            resume=_SESSION.get(req.module),
+            resume=_SESSION.get(key),
         )
         if result.session_id:
-            _SESSION[req.module] = result.session_id
+            _SESSION[key] = result.session_id
         return {"engine": "claude-code", "reply": result.text, "cost_usd": result.cost_usd}
     except EngineUnavailable as exc:
         return {"engine": "mock", "reply": f"_(Claude Code unavailable: {exc})_\n\n" + _mock_reply(req.message, summary)}
 
 
-# --- one-shot audit → full test plan + bug/gap report ------------------------
-
+# --- one-shot audit -----------------------------------------------------------
 
 class AuditReq(BaseModel):
     module: str = _DEFAULTS["module"]
@@ -286,8 +361,8 @@ class AuditReq(BaseModel):
 
 
 @app.post("/api/audit")
-def audit(req: AuditReq) -> dict:
-    summary = _SUMMARY.get(req.module, "")
+def audit(req: AuditReq, current_user: dict = Depends(get_current_user)) -> dict:
+    summary = _SUMMARY.get((current_user["username"], req.module), "")
     if not _ENGINE.available():
         return {"engine": "mock", "ok": False,
                 "error": "Claude Code not installed — install @anthropic-ai/claude-code to run a real audit."}
@@ -295,7 +370,6 @@ def audit(req: AuditReq) -> dict:
         outcome = run_full_audit(_ENGINE, module=req.module, addons=req.addons, summary=summary)
     except EngineUnavailable as exc:
         return {"engine": "mock", "ok": False, "error": str(exc)}
-
     return {
         "engine": "claude-code", "ok": True,
         "markdown": outcome.markdown,
@@ -309,7 +383,7 @@ def audit(req: AuditReq) -> dict:
     }
 
 
-# --- streaming variants (SSE) ------------------------------------------------
+# --- streaming variants (SSE) -------------------------------------------------
 
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
 
@@ -319,8 +393,9 @@ def _sse(obj: dict) -> str:
 
 
 @app.post("/api/chat/stream")
-def chat_stream(req: ChatReq) -> StreamingResponse:
-    summary = _SUMMARY.get(req.module, "")
+def chat_stream(req: ChatReq, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
+    key = (current_user["username"], req.module)
+    summary = _SUMMARY.get(key, "")
 
     def gen():
         if not _ENGINE.available():
@@ -332,10 +407,10 @@ def chat_stream(req: ChatReq) -> StreamingResponse:
             for ev in _ENGINE.run_stream(
                 req.message, code_dir=src,
                 system_prompt=build_system_prompt(summary, has_source=src is not None),
-                resume=_SESSION.get(req.module),
+                resume=_SESSION.get(key),
             ):
                 if ev.get("type") == "result" and ev.get("session_id"):
-                    _SESSION[req.module] = ev["session_id"]
+                    _SESSION[key] = ev["session_id"]
                 yield _sse(ev)
         except EngineUnavailable as exc:
             yield _sse({"type": "error", "message": str(exc)})
@@ -344,9 +419,8 @@ def chat_stream(req: ChatReq) -> StreamingResponse:
 
 
 @app.post("/api/audit/stream")
-def audit_stream(req: AuditReq) -> StreamingResponse:
-    """Stream pass 1 (the human report) live, then run pass 2 (structure + save) server-side."""
-    summary = _SUMMARY.get(req.module, "")
+def audit_stream(req: AuditReq, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
+    summary = _SUMMARY.get((current_user["username"], req.module), "")
 
     def gen():
         if not _ENGINE.available():
@@ -389,8 +463,7 @@ def audit_stream(req: AuditReq) -> StreamingResponse:
     return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
-# --- per-record live-data investigation (read-only) -------------------------
-
+# --- per-record investigation -------------------------------------------------
 
 class InvestigateReq(BaseModel):
     url: str = _DEFAULTS["url"]
@@ -400,11 +473,12 @@ class InvestigateReq(BaseModel):
     module: str = _DEFAULTS["module"]
     verify_ssl: bool = True
     question: str
-    record: str | None = None  # explicit reference; else extracted from the question
+    record: str | None = None
 
 
 @app.post("/api/investigate/stream")
-def investigate_stream(req: InvestigateReq) -> StreamingResponse:
+def investigate_stream(req: InvestigateReq,
+                       current_user: dict = Depends(get_current_user)) -> StreamingResponse:
     def gen():
         if not _ENGINE.available():
             yield _sse({"type": "error", "message": "Claude Code not installed — cannot investigate."})
@@ -433,7 +507,7 @@ def investigate_stream(req: InvestigateReq) -> StreamingResponse:
             yield _sse({"type": "text", "text": f"No record found matching `{', '.join(refs)}`. "
                         "Double-check the reference (the Number, or the Reference field on the document)."})
             return
-        matches = narrow_by_question(req.question, matches)   # "...vendor bill" → prefer account.move
+        matches = narrow_by_question(req.question, matches)
         if len(matches) > 1:
             opts = "; ".join(f"**{m['label']}** {m['name']}" for m in matches[:6])
             yield _sse({"type": "text", "text": f"That reference matches several documents: {opts}. "
@@ -458,8 +532,7 @@ def investigate_stream(req: InvestigateReq) -> StreamingResponse:
     return StreamingResponse(gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
-# --- flow explanation grounded in real records ------------------------------
-
+# --- flow explanation ---------------------------------------------------------
 
 class FlowReq(BaseModel):
     url: str = _DEFAULTS["url"]
@@ -472,7 +545,7 @@ class FlowReq(BaseModel):
 
 
 @app.post("/api/flow/stream")
-def flow_stream(req: FlowReq) -> StreamingResponse:
+def flow_stream(req: FlowReq, current_user: dict = Depends(get_current_user)) -> StreamingResponse:
     def gen():
         if not _ENGINE.available():
             yield _sse({"type": "error", "message": "Claude Code not installed — cannot explain flows."})
@@ -486,7 +559,6 @@ def flow_stream(req: FlowReq) -> StreamingResponse:
 
         target = resolve_flow(req.question)
         if not target:
-            # Unknown object — explain generally, but tell the user which flows have live examples.
             sysp = ("You are explaining an Odoo flow to a functional user, step by step in plain language. "
                     "You do not have live records for this topic. Explain it generally with one clear "
                     "illustrative example, and mention that live examples are available for: vendor bills, "
@@ -524,8 +596,8 @@ def _mock_reply(message: str, summary: str) -> str:
         "*(mock engine — Claude Code not installed on this machine yet)*\n\n"
         f"You asked: **{message}**\n\n"
         "Install the Claude Code CLI (`npm install -g @anthropic-ai/claude-code`, then `claude` "
-        "to sign in with the subscription) and this panel will read the `"
-        + (message and "addon") + "` source + the System Map and answer for real — finding bugs, "
-        "logic gaps, and drafting the test plan, billed to the subscription.\n\n"
+        "to sign in with the subscription) and this panel will read the addon source + the System "
+        "Map and answer for real — finding bugs, logic gaps, and drafting the test plan, billed "
+        "to the subscription.\n\n"
         f"Context I currently hold:\n> {' '.join(head) if head else 'run Understand first.'}"
     )

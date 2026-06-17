@@ -28,7 +28,6 @@
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:'Poppins','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;transition:background .25s ease,color .25s ease}
-  /* gold "hotel" banner — same in both themes */
   header{display:flex;align-items:center;gap:13px;padding:13px 18px;background:linear-gradient(135deg,var(--gold1),var(--gold2));border-bottom:1px solid rgba(0,0,0,.18);box-shadow:0 2px 10px rgba(0,0,0,.18)}
   header .logo{width:34px;height:34px;border-radius:9px;background:#fffdf8;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--gold2);box-shadow:0 1px 4px rgba(0,0,0,.2)}
   header h1{font-size:18px;margin:0;font-weight:700;color:#fff;letter-spacing:.5px}
@@ -39,6 +38,9 @@
   .iconbtn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.45);color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;line-height:1;transition:border-color .15s,background .15s}
   .iconbtn:hover{border-color:#fff;background:rgba(255,255,255,.22)}
   .iconbtn:active{transform:scale(.92)}
+  .userpill{font-size:12px;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.45);padding:4px 10px;border-radius:20px;display:flex;align-items:center;gap:6px}
+  .userpill .uname{font-weight:600;color:#fff}
+  .userpill .urole{font-size:10px;opacity:.75}
   .conn{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;background:var(--panel2);border-bottom:1px solid var(--line);align-items:center}
   .conn input{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 9px;font-size:12px}
   .conn input.url{width:170px}.conn input.db{width:110px}.conn input.mod{width:90px}.conn input.path{width:280px}.conn input.cred{width:80px}
@@ -55,13 +57,10 @@
   .paneltoggle{background:transparent;border:1px solid var(--line);color:var(--muted);font-size:11px;border-radius:6px;padding:3px 9px;cursor:pointer;text-transform:none;letter-spacing:0;white-space:nowrap;transition:border-color .15s,color .15s,background .15s}
   .paneltoggle:hover{border-color:var(--accent);color:var(--text);background:var(--panel2)}
   .paneltoggle:active{transform:scale(.94)}
-  /* map-collapsed: chat grows to full width, System Map slides out + fades right */
   main.map-collapsed .left{flex-basis:100%;border-right:0}
   main.map-collapsed .right{opacity:0;transform:translateX(24px)}
-  /* chat-collapsed: System Map grows to full width, chat slides out + fades left */
   main.chat-collapsed .left{flex-basis:0;opacity:0;transform:translateX(-24px);border-right:0}
   main.chat-collapsed .right{flex-basis:100%}
-  /* chat */
   .chat{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
   .msg{max-width:90%;padding:10px 13px;border-radius:10px;font-size:14px;line-height:1.5}
   .msg.user{align-self:flex-end;background:var(--userbg);border:1px solid var(--userborder)}
@@ -73,7 +72,6 @@
   .chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 10px;background:var(--panel)}
   .chip{font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:14px;padding:4px 10px;cursor:pointer;background:var(--bg)}
   .chip:hover{border-color:var(--accent)}
-  /* in-chat live activity ("thinking") indicator */
   .thinking{align-self:flex-start;display:flex;align-items:center;gap:10px;max-width:90%;
     padding:9px 13px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);
     font-size:12.5px;font-family:ui-monospace,Consolas,monospace;animation:thinkIn .22s ease}
@@ -88,7 +86,6 @@
   @keyframes shimmer{to{background-position:-200% 0}}
   .markdown pre{background:var(--codebg);padding:10px;border-radius:6px;overflow:auto}
   .markdown li{margin:2px 0}
-  /* system map */
   .mapwrap{flex:1;overflow:auto;padding:16px}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:16px}
   .card{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:12px}
@@ -104,14 +101,106 @@
   code{background:var(--codebg);padding:1px 5px;border-radius:4px;font-size:12px}
   .markdown h1{font-size:18px}.markdown h2{font-size:15px;color:var(--accent)}
   .markdown table{margin:8px 0}
+
+  /* ── Auth overlay ── */
+  .auth-overlay{position:fixed;inset:0;background:var(--bg);z-index:1000;display:flex;align-items:center;justify-content:center}
+  .auth-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:44px 40px;width:400px;max-width:92vw;box-shadow:0 12px 48px rgba(0,0,0,.18)}
+  .auth-logo{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--gold1),var(--gold2));display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:22px;margin:0 auto 20px}
+  .auth-card h2{margin:0 0 6px;font-size:20px;font-weight:700;text-align:center}
+  .auth-card .auth-sub{font-size:12px;color:var(--muted);text-align:center;margin-bottom:28px}
+  .auth-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .auth-field label{font-size:11px;color:var(--muted);font-weight:500;letter-spacing:.3px}
+  .auth-field input{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px;outline:none;transition:border-color .15s}
+  .auth-field input:focus{border-color:var(--accent)}
+  .auth-btn{width:100%;background:linear-gradient(135deg,var(--gold1),var(--gold2));color:#fff;border:0;border-radius:8px;padding:12px;font-weight:700;cursor:pointer;font-size:14px;margin-top:8px;letter-spacing:.3px;transition:filter .15s}
+  .auth-btn:hover{filter:brightness(1.08)}
+  .auth-err{color:var(--crit);font-size:12px;margin-top:10px;text-align:center;min-height:16px}
+
+  /* ── Users modal ── */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:flex;align-items:center;justify-content:center}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px;width:540px;max-width:94vw;max-height:82vh;overflow-y:auto;box-shadow:0 12px 48px rgba(0,0,0,.22)}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+  .modal-head h3{margin:0;font-size:17px;font-weight:700}
+  .modal-close{background:none;border:0;color:var(--muted);font-size:20px;cursor:pointer;padding:0 4px;line-height:1}
+  .modal-close:hover{color:var(--text)}
+  .user-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .user-row:last-of-type{border-bottom:0}
+  .user-row .uname{flex:1;font-weight:500}
+  .urole-badge{font-size:10px;color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:2px 8px}
+  .urole-badge.admin{color:var(--accent2);border-color:var(--accent2)}
+  .del-btn{background:none;border:1px solid var(--line);color:var(--crit);border-radius:6px;padding:3px 9px;cursor:pointer;font-size:11px;transition:border-color .15s}
+  .del-btn:hover{border-color:var(--crit)}
+  .modal-sep{border:0;border-top:1px solid var(--line);margin:20px 0}
+  .add-user-form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .add-user-form input,.add-user-form select{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;outline:none}
+  .add-user-form input:focus,.add-user-form select:focus{border-color:var(--accent)}
+  .add-user-form .add-btn{grid-column:1/-1;background:var(--accent2);color:#fff;border:0;border-radius:6px;padding:10px;cursor:pointer;font-weight:600;font-size:13px;transition:filter .15s}
+  .add-user-form .add-btn:hover{filter:brightness(1.1)}
+  .form-err{grid-column:1/-1;color:var(--crit);font-size:12px;min-height:14px}
 </style>
 </head>
 <body>
+
+<!-- ── Auth overlay (login / first-run setup) ── -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <div class="auth-logo">S</div>
+
+    <!-- First-run setup -->
+    <div id="setupPanel">
+      <h2>Create Admin Account</h2>
+      <p class="auth-sub">No users yet — set up your first admin to get started.</p>
+      <div class="auth-field"><label>USERNAME</label><input id="setupUser" placeholder="admin" autocomplete="username"/></div>
+      <div class="auth-field"><label>PASSWORD</label><input id="setupPass" type="password" placeholder="choose a password" autocomplete="new-password"/></div>
+      <button class="auth-btn" onclick="doSetup()">Create Admin &amp; Continue</button>
+      <div class="auth-err" id="setupErr"></div>
+    </div>
+
+    <!-- Login -->
+    <div id="loginPanel" style="display:none">
+      <h2>Sign in</h2>
+      <p class="auth-sub">Sentinel — Odoo QA Agent</p>
+      <div class="auth-field"><label>USERNAME</label><input id="loginUser" placeholder="username" autocomplete="username"/></div>
+      <div class="auth-field"><label>PASSWORD</label><input id="loginPass" type="password" placeholder="password" autocomplete="current-password"/></div>
+      <button class="auth-btn" onclick="doLogin()">Sign in</button>
+      <div class="auth-err" id="loginErr"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Users modal (admin only) ── -->
+<div class="modal-backdrop" id="usersModal" style="display:none" onclick="if(event.target===this)closeUsers()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Manage Users</h3>
+      <button class="modal-close" onclick="closeUsers()">✕</button>
+    </div>
+    <div id="usersList"></div>
+    <hr class="modal-sep"/>
+    <p style="font-size:13px;font-weight:600;margin:0 0 12px">Add new user</p>
+    <div class="add-user-form">
+      <input id="newUsername" placeholder="username"/>
+      <input id="newPassword" type="password" placeholder="password"/>
+      <select id="newRole"><option value="user">user</option><option value="admin">admin</option></select>
+      <div></div>
+      <button class="add-btn" onclick="submitNewUser()">Add User</button>
+      <div class="form-err" id="addUserErr"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main app ── -->
 <header>
   <div class="logo">S</div>
   <div><h1>Sentinel</h1><div class="sub">Agentic QA &amp; bug-detection for Odoo</div></div>
   <div class="hright">
     <div class="engine">engine: <b id="engine">…</b></div>
+    <div class="userpill" id="userPill" style="display:none">
+      <span class="uname" id="pillName"></span>
+      <span class="urole" id="pillRole"></span>
+    </div>
+    <button id="usersBtn" class="iconbtn" title="Manage users" style="display:none" onclick="openUsers()">👥</button>
+    <button id="logoutBtn" class="iconbtn" title="Sign out" onclick="logout()">⏏</button>
     <button id="themeBtn" class="iconbtn" title="Toggle light / dark mode" aria-label="Toggle theme">🌙</button>
   </div>
 </header>
@@ -137,11 +226,19 @@
     </div>
     <div class="chat" id="chat"></div>
     <div class="chips" id="chips"></div>
+    <!-- Report scope picker — shown when Report is clicked with empty input -->
+    <div id="reportMenu" style="display:none;padding:8px 12px;background:var(--panel);border-top:1px solid var(--line);gap:8px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--muted);white-space:nowrap">Report scope:</span>
+      <button onclick="makeReport('whole')" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;font-family:inherit">Whole chat</button>
+      <button onclick="makeReport('last')"  style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;font-family:inherit">Last conversation</button>
+      <button onclick="$('reportMenu').style.display='none'" style="background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;line-height:1">✕</button>
+    </div>
     <div class="composer">
       <input id="msg" placeholder="Ask in plain language — e.g. why does S00437 still show 0 delivered?" />
       <button id="diagnose" title="Investigate a specific live record — include its reference (e.g. S00437) in your question" style="background:var(--low);color:#fff">🔍 Diagnose</button>
-      <button id="report" title="Make a report — type a flow/area first (e.g. 'sales order processing'), or leave blank to report on what we've discussed" style="background:var(--panel2);color:var(--text);border:1px solid var(--line)">Report</button>
+      <button id="report" title="Type a topic to report on, or leave blank to choose scope" style="background:var(--panel2);color:var(--text);border:1px solid var(--line)">Report</button>
       <button id="plan" title="One-shot audit → test plan + bug/gap report" style="background:var(--accent2)">Test Plan</button>
+      <button id="stopBtn" title="Stop current operation" style="display:none;background:var(--crit);color:#fff" onclick="stopAll()">■ Stop</button>
       <button id="send">Send</button>
     </div>
   </section>
@@ -157,8 +254,172 @@
 <script>
 const $ = id => document.getElementById(id);
 let CFG = null;
+let CURRENT_USER = null;
+let _activeCtrl = null;
 
-const CONN_KEYS = ['url','db','user','module','addons'];   // password is intentionally NOT persisted
+function setActive(on){
+  if(on){
+    _activeCtrl = new AbortController();
+    $('stopBtn').style.display = '';
+    ['send','plan','report','diagnose','understand','scan'].forEach(id=>{ const el=$(id); if(el) el.disabled=true; });
+  } else {
+    _activeCtrl = null;
+    $('stopBtn').style.display = 'none';
+    ['send','plan','report','diagnose','understand','scan'].forEach(id=>{ const el=$(id); if(el) el.disabled=false; });
+  }
+}
+
+function stopAll(){
+  if(_activeCtrl) _activeCtrl.abort();
+  setActive(false);
+}
+
+// ── Token helpers ──────────────────────────────────────────────────────────────
+function getToken(){ return localStorage.getItem('sentinel-token') || ''; }
+function setToken(t){ localStorage.setItem('sentinel-token', t); }
+function clearToken(){ localStorage.removeItem('sentinel-token'); }
+
+// ── Authenticated fetch wrapper ───────────────────────────────────────────────
+async function api(url, opts = {}){
+  opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  const t = getToken();
+  if(t) opts.headers['Authorization'] = 'Bearer ' + t;
+  const res = await fetch(url, opts);
+  if(res.status === 401){
+    clearToken();
+    CURRENT_USER = null;
+    showAuthOverlay();
+    throw new Error('Session expired — please sign in again.');
+  }
+  return res;
+}
+
+// ── Auth overlay ───────────────────────────────────────────────────────────────
+async function showAuthOverlay(){
+  $('authOverlay').style.display = 'flex';
+  const st = await fetch('/api/auth/status').then(r=>r.json()).catch(()=>({has_users:false}));
+  if(st.has_users){
+    $('setupPanel').style.display = 'none';
+    $('loginPanel').style.display = '';
+    $('loginUser').focus();
+  } else {
+    $('setupPanel').style.display = '';
+    $('loginPanel').style.display = 'none';
+    $('setupUser').focus();
+  }
+}
+
+function hideAuthOverlay(){ $('authOverlay').style.display = 'none'; }
+
+async function doSetup(){
+  const username = $('setupUser').value.trim();
+  const password = $('setupPass').value;
+  $('setupErr').textContent = '';
+  if(!username || !password){ $('setupErr').textContent = 'Enter a username and password.'; return; }
+  try{
+    const r = await fetch('/api/auth/setup',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username,password})});
+    const d = await r.json();
+    if(!r.ok){ $('setupErr').textContent = d.detail || 'Setup failed.'; return; }
+    setToken(d.token);
+    CURRENT_USER = {username: d.username, role: d.role};
+    onLoggedIn();
+  }catch(e){ $('setupErr').textContent = String(e); }
+}
+$('setupPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doSetup(); });
+
+async function doLogin(){
+  const username = $('loginUser').value.trim();
+  const password = $('loginPass').value;
+  $('loginErr').textContent = '';
+  if(!username || !password){ $('loginErr').textContent = 'Enter your username and password.'; return; }
+  try{
+    const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username,password})});
+    const d = await r.json();
+    if(!r.ok){ $('loginErr').textContent = d.detail || 'Login failed.'; return; }
+    setToken(d.token);
+    CURRENT_USER = {username: d.username, role: d.role};
+    onLoggedIn();
+  }catch(e){ $('loginErr').textContent = String(e); }
+}
+$('loginPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+
+function logout(){
+  clearToken();
+  CURRENT_USER = null;
+  $('userPill').style.display = 'none';
+  $('usersBtn').style.display = 'none';
+  $('loginUser').value = '';
+  $('loginPass').value = '';
+  $('loginErr').textContent = '';
+  showAuthOverlay();
+}
+
+function onLoggedIn(){
+  hideAuthOverlay();
+  $('pillName').textContent = CURRENT_USER.username;
+  $('pillRole').textContent = CURRENT_USER.role;
+  $('userPill').style.display = 'flex';
+  if(CURRENT_USER.role === 'admin') $('usersBtn').style.display = 'flex';
+  boot();
+}
+
+// ── Users modal (admin) ───────────────────────────────────────────────────────
+async function openUsers(){
+  $('addUserErr').textContent = '';
+  $('newUsername').value = '';
+  $('newPassword').value = '';
+  $('newRole').value = 'user';
+  await refreshUsers();
+  $('usersModal').style.display = 'flex';
+}
+function closeUsers(){ $('usersModal').style.display = 'none'; }
+
+async function refreshUsers(){
+  try{
+    const r = await api('/api/auth/users');
+    const d = await r.json();
+    const users = d.users || [];
+    $('usersList').innerHTML = users.length === 0
+      ? '<p style="color:var(--muted);font-size:13px">No users yet.</p>'
+      : users.map(u=>`
+        <div class="user-row">
+          <span class="uname">${escapeHtml(u.username)}</span>
+          <span class="urole-badge ${u.role==='admin'?'admin':''}">${u.role}</span>
+          ${u.username !== CURRENT_USER.username
+            ? `<button class="del-btn" onclick="removeUser('${escapeHtml(u.username)}')">Remove</button>`
+            : '<span style="font-size:11px;color:var(--muted)">(you)</span>'}
+        </div>`).join('');
+  }catch(e){ $('usersList').innerHTML = '<p style="color:var(--crit);font-size:13px">'+e+'</p>'; }
+}
+
+async function submitNewUser(){
+  const username = $('newUsername').value.trim();
+  const password = $('newPassword').value;
+  const role = $('newRole').value;
+  $('addUserErr').textContent = '';
+  if(!username || !password){ $('addUserErr').textContent = 'Fill in username and password.'; return; }
+  try{
+    const r = await api('/api/auth/users',{method:'POST',body:JSON.stringify({username,password,role})});
+    const d = await r.json();
+    if(!r.ok){ $('addUserErr').textContent = d.detail || 'Failed to add user.'; return; }
+    $('newUsername').value = ''; $('newPassword').value = '';
+    await refreshUsers();
+  }catch(e){ $('addUserErr').textContent = String(e); }
+}
+
+async function removeUser(username){
+  if(!confirm(`Remove user "${username}"?`)) return;
+  try{
+    const r = await api('/api/auth/users/'+encodeURIComponent(username),{method:'DELETE'});
+    if(!r.ok){ const d=await r.json(); alert(d.detail||'Failed.'); return; }
+    await refreshUsers();
+  }catch(e){ alert(String(e)); }
+}
+
+// ── Connection persistence ────────────────────────────────────────────────────
+const CONN_KEYS = ['url','db','user','module','addons'];
 function loadConn(){ try{ return JSON.parse(localStorage.getItem('sentinel-conn')||'{}'); }catch(e){ return {}; } }
 function saveConn(){
   const c={}; CONN_KEYS.forEach(k=>c[k]=$(k).value); c.insecure=$('insecure').checked;
@@ -166,23 +427,23 @@ function saveConn(){
 }
 
 async function boot(){
-  CFG = await (await fetch('/api/config')).json();
+  CFG = await api('/api/config').then(r=>r.json()).catch(()=>null);
+  if(!CFG) return;
   $('engine').textContent = CFG.engine;
   const saved = loadConn();
   const hasSaved = Object.keys(saved).length > 0;
-  // Prefill from the last-used connection; fall back to server defaults only on first run.
   CONN_KEYS.forEach(k => $(k).value = (hasSaved ? (saved[k]||'') : (CFG.defaults[k]||'')));
-  $('password').value = hasSaved ? '' : (CFG.defaults.password||'');   // never restore a saved password
+  $('password').value = hasSaved ? '' : (CFG.defaults.password||'');
   $('insecure').checked = !!saved.insecure;
   addBot("Hi — I'm **Sentinel**. Point me at your Odoo module above and click **Understand**. "
     + "Then ask me to find bugs/logic gaps, or click **Test Plan** for a full audit.");
-  if (CFG.engine !== 'claude-code')
+  if(CFG.engine !== 'claude-code')
     addBot("⚠️ *Reasoning engine is in **mock** mode.* Install Claude Code on this machine to "
       + "power real analysis on your subscription:\n```\nnpm install -g @anthropic-ai/claude-code\nclaude   # sign in\n```");
-  $('chips').innerHTML='';   // examples appear only after connecting, derived from the instance
+  $('chips').innerHTML='';
 }
 
-// Suggestions tailored to a single understood module.
+// ── Chip suggestions ──────────────────────────────────────────────────────────
 function chipsForModule(module, r){
   const out=[`Find logic gaps in ${module}`, `Which models have weak access control?`];
   const news=(r.models||[]).filter(m=>m.new).slice(0,2);
@@ -190,7 +451,6 @@ function chipsForModule(module, r){
   else out.push(`What does ${module} customise here?`);
   return out;
 }
-// Suggestions derived from which business areas are customised in the instance.
 function chipsForDeployment(r){
   const names=(r.modules||[]).map(m=>m.name).join(' ');
   const out=[];
@@ -204,6 +464,7 @@ function chipsForDeployment(r){
   return out.slice(0,4);
 }
 
+// ── Chat rendering ────────────────────────────────────────────────────────────
 function addMsg(text, who){
   const d=document.createElement('div'); d.className='msg '+who;
   d.innerHTML = who==='bot' ? `<div class="markdown">${marked.parse(text)}</div>` : escapeHtml(text);
@@ -211,7 +472,7 @@ function addMsg(text, who){
 }
 const addBot = t => addMsg(t,'bot');
 const addUser = t => addMsg(t,'user');
-function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
 function renderChips(items){
   $('chips').innerHTML='';
@@ -219,13 +480,14 @@ function renderChips(items){
     c.onclick=()=>{$('msg').value=t;send();};$('chips').appendChild(c);});
 }
 
+// ── Understand ────────────────────────────────────────────────────────────────
 async function understand(){
   $('understand').disabled=true; $('connstatus').textContent='connecting…';
-  saveConn();   // remember this connection (minus password) as the last-used one
+  saveConn();
   const body={url:$('url').value,db:$('db').value,user:$('user').value,password:$('password').value,
               module:$('module').value,addons:$('addons').value,verify_ssl:!$('insecure').checked};
   try{
-    const res=await fetch('/api/introspect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await api('/api/introspect',{method:'POST',body:JSON.stringify(body)});
     const r=await res.json().catch(()=>({ok:false,error:'server error (HTTP '+res.status+') — check the sentinel web terminal'}));
     if(!r.ok){ $('connstatus').textContent='❌ '+r.error; $('understand').disabled=false; return; }
     $('connstatus').textContent=`✓ Odoo ${r.server_version} (uid ${r.uid})`;
@@ -237,21 +499,21 @@ async function understand(){
       let w='⚠️ '+r.warning;
       if(r.suggestions && r.suggestions.length)
         w+=`\n\n**Installed modules matching "${body.module}":**\n- `+r.suggestions.join('\n- ');
-      addBot(w);   // empty map → don't generate a misleading overview
+      addBot(w);
     } else {
       fetchOverview(body.module);
     }
-  }catch(e){ $('connstatus').textContent='❌ '+e; }
+  }catch(e){ if(e.message && !e.message.includes('expired')) $('connstatus').textContent='❌ '+e; }
   $('understand').disabled=false;
 }
 
-// Scan the whole instance for custom (client-developed) modules — for heavily-customised deployments.
+// ── Scan deployment ───────────────────────────────────────────────────────────
 async function scanDeployment(){
   $('scan').disabled=true; $('connstatus').textContent='scanning modules…';
   const body={url:$('url').value,db:$('db').value,user:$('user').value,password:$('password').value,
               verify_ssl:!$('insecure').checked};
   try{
-    const res=await fetch('/api/deployment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await api('/api/deployment',{method:'POST',body:JSON.stringify(body)});
     const r=await res.json().catch(()=>({ok:false,error:'server error (HTTP '+res.status+') — check the terminal'}));
     if(!r.ok){ $('connstatus').textContent='❌ '+r.error; $('scan').disabled=false; return; }
     $('connstatus').textContent=`✓ ${r.custom_count} custom of ${r.total} modules`;
@@ -260,7 +522,7 @@ async function scanDeployment(){
     addBot(`Found **${r.custom_count} custom modules** (of ${r.total} installed; ${r.standard_count} standard Odoo/OCA). `
       +`Click any in the System Map panel to Understand it in depth. Summarising the customisations…`);
     fetchDeploymentOverview(body);
-  }catch(e){ $('connstatus').textContent='❌ '+e; }
+  }catch(e){ if(e.message && !e.message.includes('expired')) $('connstatus').textContent='❌ '+e; }
   $('scan').disabled=false;
 }
 
@@ -280,7 +542,7 @@ async function fetchDeploymentOverview(body){
   if(CFG && CFG.engine!=='claude-code') return;
   const think=makeThinking('summarising the customisations…');
   try{
-    const r=await (await fetch('/api/deployment/overview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    const r=await (await api('/api/deployment/overview',{method:'POST',body:JSON.stringify(body)})).json();
     think.remove();
     if(r.ok && r.markdown) addBot(r.markdown);
     else if(r.error) addBot('_(Customisation overview unavailable: '+r.error+')_');
@@ -288,10 +550,10 @@ async function fetchDeploymentOverview(body){
 }
 
 async function fetchOverview(module){
-  if(CFG && CFG.engine!=='claude-code') return;   // needs the real engine; skip in mock
+  if(CFG && CFG.engine!=='claude-code') return;
   const think=makeThinking('reading the module to summarise it…');
   try{
-    const res=await fetch('/api/overview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({module})});
+    const res=await api('/api/overview',{method:'POST',body:JSON.stringify({module})});
     const r=await res.json().catch(()=>({ok:false,error:'HTTP '+res.status}));
     think.remove();
     if(r.ok && r.markdown){
@@ -301,7 +563,7 @@ async function fetchOverview(module){
     } else if(r.error){
       addBot('_(App overview unavailable: '+r.error+')_');
     }
-  }catch(e){ think.remove(); addBot('_(App overview unavailable: '+e+')_'); }
+  }catch(e){ think.remove(); if(e.message && !e.message.includes('expired')) addBot('_(App overview unavailable: '+e+')_'); }
 }
 
 function renderMap(r){
@@ -321,12 +583,11 @@ function toolLabel(ev){
   const verb={Read:'Reading',Grep:'Searching',Glob:'Scanning'}[ev.name]||ev.name||'Working';
   const inp=ev.input||{};
   if(inp.file_path) return `${verb} ${base(inp.file_path)}`;
-  if(inp.pattern)  return `${verb} “${inp.pattern}”`;
+  if(inp.pattern)  return `${verb} "${inp.pattern}"`;
   if(inp.path)     return `${verb} ${base(inp.path)}`;
   return verb+'…';
 }
 
-// In-chat animated "thinking" indicator (spinner + shimmering current step).
 function makeThinking(initial){
   const el=document.createElement('div'); el.className='thinking';
   el.innerHTML='<span class="ring"></span><span class="tstep"></span>';
@@ -353,6 +614,7 @@ function auditSummaryMd(ev){
   return s;
 }
 
+// ── Streaming runner ──────────────────────────────────────────────────────────
 async function streamRun(url, body, opening, onComplete){
   if(opening) addUser(opening);
   const bubble=document.createElement('div'); bubble.className='msg bot';
@@ -361,7 +623,8 @@ async function streamRun(url, body, opening, onComplete){
   const think=makeThinking('starting up…');
   let acc='';
   try{
-    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    setActive(true);
+  const res=await api(url,{method:'POST',body:JSON.stringify(body), signal:_activeCtrl?.signal});
     const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
     while(true){
       const {done,value}=await reader.read(); if(done) break;
@@ -384,29 +647,26 @@ async function streamRun(url, body, opening, onComplete){
         else if(ev.type==='error'){ think.remove(); md.innerHTML=marked.parse((acc?acc+'\n\n':'')+'❌ '+ev.message); }
       }
     }
-  }catch(e){ md.innerHTML=marked.parse('❌ '+e); }
+  }catch(e){ if(e.message && !e.message.includes('expired') && e.name!=='AbortError') md.innerHTML=marked.parse('❌ '+e); }
+  setActive(false);
   think.remove();
   scrollChat();
   if(onComplete && acc) onComplete(acc);
 }
 
+// ── PDF report helpers ────────────────────────────────────────────────────────
 function cleanReportContent(md){
   let t = md;
-  // Strip trailing Coverage section (## Coverage / ### Coverage)
   t = t.replace(/\n{1,2}#{1,3}\s*Coverage[\s\S]*$/i, '');
-  // Strip trailing suggestion / CTA paragraphs ("To turn this into...", "Tell me which...", etc.)
   t = t.replace(/\n{1,2}(\*\*)?To (turn|make|get|produce|create) this[\s\S]*$/i, '');
   t = t.replace(/\n{1,2}(\*\*)?To get a (real|concrete|full|deeper)[\s\S]*$/i, '');
-  // Strip "Did NOT reach" stray sentences outside the Coverage block
   t = t.replace(/\n[^\n]*Did NOT reach[^\n]*/gi, '');
-  // Strip lines that are purely module-count summaries (e.g. "Read: the full System Map for...")
   t = t.replace(/\n[^\n]*\bSystem Map\b[^\n]*\(model\/field[\s\S]*?\)\./gi, '');
   return t.trimEnd();
 }
 
 function downloadReportPdf(markdownText, topic){
   const cleaned = cleanReportContent(markdownText);
-  const slug = (topic||'report').replace(/[^a-z0-9_-]/gi,'-').toLowerCase();
   const date = new Date().toISOString().slice(0,10);
   const title = `Sentinel Report — ${topic||'Discussion'} — ${date}`;
   const bodyHtml = marked.parse(cleaned);
@@ -448,12 +708,11 @@ ${bodyHtml}
   win.document.close();
 }
 
-// Does the text name a specific document (S00437, INV/2026/00010, JX20260224…)?
+// ── Action handlers ───────────────────────────────────────────────────────────
 function hasReference(text){
   const rx=/\b[A-Z][A-Z0-9]*(?:[/_-][A-Z0-9]+)*\b/g;
   return (text.match(rx)||[]).some(t=>/\d/.test(t));
 }
-// Is the user asking to explain a flow/process/lifecycle?
 function isFlowRequest(text){
   return /\b(flow|process|lifecycle|life ?cycle|walk ?through|step[- ]?by[- ]?step|stages?)\b/i.test(text)
       || /\bhow (do|does|is|are|can)\b.*\b(work|created|processed|handled|confirmed|posted|paid|delivered|invoiced)\b/i.test(text);
@@ -469,8 +728,8 @@ async function explainFlow(){
 
 async function send(){
   const m=$('msg').value.trim(); if(!m) return;
-  if(hasReference(m)) return diagnose();    // names a specific record → its live data
-  if(isFlowRequest(m)) return explainFlow(); // explain a flow → ground it in real records
+  if(hasReference(m)) return diagnose();
+  if(isFlowRequest(m)) return explainFlow();
   $('msg').value='';
   await streamRun('/api/chat/stream',{message:m,module:$('module').value,addons:$('addons').value}, m);
 }
@@ -480,27 +739,42 @@ async function audit(){
     'Generate a full test plan + bug/gap report');
 }
 
-// Make Report: scope = the input text (a flow/area) if typed, else "what we've discussed".
-// Routed through the chat session (resume) so it has full conversation context + source + skill.
-async function makeReport(){
-  const scope=$('msg').value.trim(); $('msg').value='';
-  const ask = scope
-    ? `Make a report on the "${scope}" functional flow/area of this module. Follow the "make report" `
-      + `format from your instructions: explain the process step by step in plain language, then list `
-      + `findings and gaps in that flow with file:line evidence.`
-    : `Make a report on what we've been discussing (if nothing specific came up, report on the whole `
-      + `module). Follow the "make report" format: explain the process step by step in plain language, `
-      + `then list the findings and gaps with file:line evidence.`;
-  const mod=$('module').value;
-  const pdfTopic = scope || 'discussion';
+async function makeReport(chatScope){
+  const input=$('msg').value.trim();
+  // If input has text, generate report on that topic immediately
+  if(input){
+    $('msg').value='';
+    $('reportMenu').style.display='none';
+    const ask=`Make a report on the "${input}" functional flow/area of this module. Follow the "make report" `
+      +`format from your instructions: explain the process step by step in plain language, then list `
+      +`findings and gaps in that flow with file:line evidence.`;
+    await streamRun('/api/chat/stream',
+      {message:ask, module:$('module').value, addons:$('addons').value},
+      `📋 Report: ${input}`,
+      acc => downloadReportPdf(acc, input));
+    return;
+  }
+  // No input — if no scope chosen yet, show the picker
+  if(!chatScope){
+    $('reportMenu').style.display='flex';
+    return;
+  }
+  // Scope chosen from picker
+  $('reportMenu').style.display='none';
+  const isWhole = chatScope==='whole';
+  const ask = isWhole
+    ? `Make a report on everything we've discussed in this session. Cover the full functional flow, `
+      +`list all findings, gaps, and bugs found. Follow the "make report" format.`
+    : `Make a report on the last topic or conversation only. Summarise that flow, list findings and `
+      +`gaps found. Follow the "make report" format.`;
+  const label = isWhole ? '📋 Report: whole chat' : '📋 Report: last conversation';
+  const pdfTopic = isWhole ? 'whole-chat' : 'last-conversation';
   await streamRun('/api/chat/stream',
-    {message:ask, module:mod, addons:$('addons').value},
-    scope ? `📋 Report: ${scope}` : '📋 Report: our discussion',
+    {message:ask, module:$('module').value, addons:$('addons').value},
+    label,
     acc => downloadReportPdf(acc, pdfTopic));
 }
 
-// Diagnose: investigate a specific live record. Reads the record's real data over RPC
-// (needs the connection details) and reasons over it — no source code involved.
 async function diagnose(){
   const q=$('msg').value.trim();
   if(!q){ addBot('Type your question first — include the record reference, e.g. *"why does S00437 still show 0 delivered?"*'); return; }
@@ -511,6 +785,7 @@ async function diagnose(){
   }, '🔍 '+q);
 }
 
+// ── Theme & layout ────────────────────────────────────────────────────────────
 function applyTheme(t){
   document.documentElement.dataset.theme = t;
   $('themeBtn').textContent = t==='light' ? '☀️' : '🌙';
@@ -521,7 +796,6 @@ function toggleTheme(){
   applyTheme(next);
 }
 
-// Layout is one of: 'both' | 'map-collapsed' (chat full) | 'chat-collapsed' (map full).
 let LAYOUT = 'both';
 function applyLayout(state){
   const m = document.querySelector('main');
@@ -535,9 +809,10 @@ function setLayout(state){
   try{ localStorage.setItem('sentinel-layout', LAYOUT); }catch(e){}
   applyLayout(LAYOUT);
 }
-const toggleMap  = () => setLayout(LAYOUT === 'map-collapsed' ? 'both' : 'map-collapsed');   // chat-side: hide/show the map
-const toggleChat = () => setLayout(LAYOUT === 'chat-collapsed' ? 'both' : 'chat-collapsed');  // map-side: hide/show the chat
+const toggleMap  = () => setLayout(LAYOUT === 'map-collapsed' ? 'both' : 'map-collapsed');
+const toggleChat = () => setLayout(LAYOUT === 'chat-collapsed' ? 'both' : 'chat-collapsed');
 
+// ── Wire up events ────────────────────────────────────────────────────────────
 $('understand').onclick=understand;
 $('scan').onclick=scanDeployment;
 $('send').onclick=send;
@@ -548,9 +823,20 @@ $('themeBtn').onclick=toggleTheme;
 $('mapToggle').onclick=toggleMap;
 $('mapToggleRight').onclick=toggleChat;
 $('msg').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+
+// ── Startup ───────────────────────────────────────────────────────────────────
 applyTheme(document.documentElement.dataset.theme==='light' ? 'light' : 'dark');
 setLayout(localStorage.getItem('sentinel-layout') || 'both');
-boot();
+
+// If we have a token, try to use it; otherwise show the auth overlay.
+if(getToken()){
+  api('/api/config').then(r=>r.json()).then(cfg=>{
+    CURRENT_USER = {username: cfg.username, role: cfg.role};
+    onLoggedIn();
+  }).catch(()=>{ clearToken(); showAuthOverlay(); });
+} else {
+  showAuthOverlay();
+}
 </script>
 </body>
 </html>

@@ -21,13 +21,12 @@
 
 ## What Sentinel does
 
-Point it at an Odoo module (code + a running instance). It **understands what was
-developed and configured**, then **finds bugs and logic gaps** across backend and
-frontend, and produces a **test plan + bug/gap report**. It works as a **chat** UI and as
-a one-shot **audit**.
+Point it at an Odoo module (code + a running instance, or just a staging link). It **understands
+what was developed and configured**, then **finds bugs and logic gaps** across backend and
+frontend, and produces a **test plan + bug/gap report**. It works as an **interactive chat** and
+as a one-shot **audit**.
 
-First real target: the **`assetz`** asset-tracking app (65 models, 1,457 fields, 120 views,
-86 access rules, 5 crons).
+Any staging link or local addon given at runtime is the target — there is no fixed default module.
 
 ---
 
@@ -41,7 +40,7 @@ Claude Code can't know on its own: the **Odoo tools** and the **QA skill**.
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │ FRONTEND  (web UI — this repo, built)                          │
-│   chat · System Map dashboard · report viewer                  │
+│   chat · System Map dashboard · report viewer · PDF download   │
 └───────────────┬───────────────────────────────────────────────┘
                 │  HTTP (FastAPI)
 ┌───────────────▼───────────────────────────────────────────────┐
@@ -96,7 +95,7 @@ src/sentinel/
   engine/       claude_code (headless `claude -p`) · skill (Odoo-QA playbook)   (reasoning)
   audit/        runner (two-pass: report → structured findings) · models         (Phase 2 audit)
   execute/      generate · provision (clone) · runner (XML-RPC) · ui_playwright · report   (Phase 3)
-  web/          app.py (FastAPI) + static/index.html (chat + dashboard)
+  web/          app.py (FastAPI) + static/index.html (chat + dashboard + PDF report download)
   core/         models.py — the Finding schema the audit populates
   cli.py        sentinel web | introspect | scan-addons | audit | run-tests | run-ui
 tests/unit/     Odoo-layer + audit-parser + executor tests
@@ -104,7 +103,8 @@ tests/unit/     Odoo-layer + audit-parser + executor tests
 
 The web UI's **Understand** button calls the real Odoo introspection live; the **chat**
 panel is wired to Claude Code (with a mock fallback so the UI is alive before Claude Code
-is connected).
+is connected). The **Report** button streams a functional flow report and auto-downloads it
+as a text-extractable PDF.
 
 ---
 
@@ -114,15 +114,15 @@ is connected).
 cd C:\Users\vidyu\Desktop\sentinel-testing-agent
 .\.venv\Scripts\python.exe -m pip install -e .
 
-# 1. start your Odoo (separate terminal, from assests_tk):
-#    python odoo18\odoo-bin -c odoo18\odoo.conf -u assetz --dev=all
+# 1. start your Odoo instance (separate terminal, from the addon's project directory)
 
 # 2. start Sentinel's web UI:
 .\.venv\Scripts\sentinel.exe web        # -> http://127.0.0.1:8800
 ```
 
-Open `http://127.0.0.1:8800`, confirm the connection fields (prefilled for `assetz`), click
-**Understand** -> the System Map fills in from the live instance. Then chat with it.
+Open `http://127.0.0.1:8800`, fill in the connection fields (Odoo URL, database, user, password,
+module name, and optionally the addon source path), then click **Understand** — the System Map
+fills in from the live instance. Then chat with it, or run a one-shot audit.
 
 To power the chat with real reasoning, install and sign in to the Claude Code CLI — the engine
 auto-detects it (no flag needed) and `/api/config` then reports `engine: claude-code`:
@@ -132,6 +132,14 @@ claude          # sign in with the Claude subscription (NO ANTHROPIC_API_KEY nee
 ```
 Optional overrides: `SENTINEL_CLAUDE_PATH` (point at a specific `claude` binary) ·
 `SENTINEL_FORCE_SUBSCRIPTION=0` (keep `ANTHROPIC_API_KEY` in the engine env instead of stripping it).
+
+Connection defaults can be set via environment variables:
+```powershell
+$env:SENTINEL_ODOO_URL    = "http://localhost:8069"
+$env:SENTINEL_ODOO_DB     = "my_db"
+$env:SENTINEL_ODOO_USER   = "admin"
+$env:SENTINEL_MODULE      = "my_module"
+```
 
 ---
 

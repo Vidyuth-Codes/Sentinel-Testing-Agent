@@ -28,8 +28,8 @@ Enterprise module** — its **addon source code** plus a **running Odoo instance
 
 It works as an **interactive chat** and as a **one-shot audit**.
 
-**First real target:** the **`assetz`** asset-tracking app (65 models, 1,457 fields, 120 views,
-86 access rules, 5 crons).
+The target is whatever Odoo module (local addon or staging instance) the user points Sentinel at
+at runtime — there is no fixed or default module.
 
 ---
 
@@ -70,7 +70,7 @@ RAG. We build only the parts Claude Code can't know on its own: the **Odoo tools
 - **G2 — Detect defects** across **both** backend (Python/ORM) and frontend (OWL/JS/XML), plus
   integration/contract and security/access issues.
 - **G3 — Ground every finding** in a concrete location (`models/asset.py:123` or
-  `assetz.asset.action_confirm`) with the offending snippet — no vague claims.
+  `<module>.<model>.action_confirm`) with the offending snippet — no vague claims.
 - **G4 — Two modes:** interactive **chat** and a **one-shot audit** that emits a test plan + report.
 - **G5 — Low false positives** through deterministic grounding + "report only what you can point to."
 - **G6 — Flat-cost reasoning** on the Claude Code subscription (no `ANTHROPIC_API_KEY` required).
@@ -101,9 +101,10 @@ RAG. We build only the parts Claude Code can't know on its own: the **Odoo tools
 ## 5. Scope
 
 ### 5.1 In scope
-- **Inputs:** a path to the **addon source** (folder with `__manifest__.py`) **and** connection
+- **Inputs:** a path to the **addon source** (folder with `__manifest__.py`) **and/or** connection
   details for a **running Odoo 18 instance** (URL, db, user, password/API key) plus the addon's
-  **technical name** (e.g. `assetz`).
+  **technical name**. Source path is optional — with only a staging link, Sentinel works in
+  UI-flow and live-data mode.
 - **Understand layer (deterministic, no LLM):** XML-RPC introspection of the live instance into a
   **System Map**; AST scan of the addon source; an "understanding report."
 - **Reasoning layer (Claude Code):** requirement/gap analysis, backend + frontend bug findings,
@@ -248,9 +249,9 @@ plus a severity and a confidence.
 
 **A. Understand → chat**
 ```
-User → connect (URL, db, user, password, module=assetz, addon path)
+User → connect (URL, db, user, password, module name, optional addon path)
   → Sentinel: introspect (live RPC) + scan source → System Map + understanding report  (no LLM)
-User → "Is the asset disposal workflow safe?"
+User → asks a question about the module
   → Claude Code reads the relevant models/views (Read/Grep), reasons with the System Map
   → streams a grounded answer with file:line evidence
 ```
@@ -274,7 +275,7 @@ Test plan → provision duplicate DB in a Docker sandbox
 
 ## 11. Acceptance Criteria
 
-- **AC-1 (Understand)** — Given `assetz` + a live instance, Sentinel builds a System Map with the
+- **AC-1 (Understand)** — Given a module name + a live instance, Sentinel builds a System Map with the
   correct split of new vs extended models and accurate counts (fields, views, access rules, crons),
   and renders the understanding report — with **no LLM** involved (FR-01…FR-04).
 - **AC-2 (Reason)** — A one-shot audit returns a test plan (requirement-coverage table + concrete
