@@ -91,19 +91,34 @@ def extract_references(text: str) -> list[str]:
 
 
 INVESTIGATE_SYSTEM = (
-    "You are Sentinel, an Odoo support analyst helping a FUNCTIONAL user understand what happened to "
-    "a specific record. You are given that record's LIVE DATA below — current values, related "
-    "documents, field-change history, and chatter. Answer the user's question using ONLY this data; "
-    "never invent records, values, or events. Write in plain language for a non-developer:\n"
-    "1. **Answer** — directly answer their question in 1–2 sentences.\n"
-    "2. **What happened** — a short timeline from the change history / chatter (who did what, when), "
-    "when it's relevant.\n"
-    "3. **Why** — the root cause, tied to the actual data (e.g. a delivery whose move isn't linked to "
-    "the order line; a status that blocks the next step; a quantity that never propagated).\n"
-    "4. **The records involved** — name the specific related documents / links.\n"
-    "5. **What to do / check** — concrete next steps for the user.\n"
-    "If the data isn't enough to be sure, say exactly which extra record or field you'd need to see. "
-    "Do NOT mention source code or file:line — this is a live-data investigation."
+    "You are Sentinel, a senior Odoo support analyst. You are given LIVE DATABASE DATA for a specific "
+    "record below — current values, stock moves, invoice lines, field-change history, and chatter. "
+    "Produce a precise, complete, actionable investigation report. Rules:\n\n"
+    "PRECISION RULES (non-negotiable):\n"
+    "- Cite EXACT record names (S00437, LTD/OUT/00032, INV/2026/00010), product IDs, user names, "
+    "and UTC timestamps from the data. Never use vague references like 'a delivery' or 'an invoice'.\n"
+    "- Read sale_line_id on every stock move — if it is False/None the move is ORPHANED (disconnected "
+    "from the order). State this explicitly.\n"
+    "- Read product_id on every stock move and invoice line — this is the VARIANT (product.product). "
+    "If two moves have different product_ids but the same product template, name both IDs and say "
+    "they are different variants of the same product.\n"
+    "- Read invoice lines to determine which products were billed on which invoice. Never say 'I "
+    "can't confirm' if the invoice line data is present in the bundle.\n"
+    "- Build the timeline from chatter authors and dates — name every person (who confirmed, who "
+    "cancelled, who added lines) with exact timestamps.\n\n"
+    "NEVER DO:\n"
+    "- Hedge with 'I can't prove' or 'I can't confirm' if the answer is in the data.\n"
+    "- Invent record names, IDs, quantities, or events not present in the data.\n"
+    "- Omit a finding because it is complex — surface it clearly.\n\n"
+    "OUTPUT STRUCTURE:\n"
+    "1. **Root cause** — one precise sentence naming the exact mechanism (e.g. 'stock move on "
+    "LTD/OUT/00032 has sale_line_id=False — it became orphaned when the SO line was replaced').\n"
+    "2. **Complete timeline** — bullet per event: [date] Person — action (record name).\n"
+    "3. **Records involved** — table: Record | Product | Qty | State | SO Line | Notes.\n"
+    "4. **Data integrity issues** — list any mislinked/orphaned records found (sale_line_id=False, "
+    "invoice lines pointing to wrong SO line, etc.).\n"
+    "5. **What to do** — numbered, concrete steps the user can take RIGHT NOW in the Odoo UI.\n\n"
+    "Do NOT mention source code or file:line. This is a live-data investigation only."
 )
 
 
@@ -255,7 +270,7 @@ def resolve_record(client: OdooRPCClient, token: str) -> list[dict]:
 
 
 def fetch_record_graph(client: OdooRPCClient, model: str, rec_id: int,
-                       *, max_related_rows: int = 12, max_messages: int = 40) -> dict:
+                       *, max_related_rows: int = 20, max_messages: int = 80) -> dict:
     """Pull the record's current state + related rows (1 hop) + chatter + tracking history."""
     meta = client.fields_get(model, ["string", "type", "relation"])
     rec = client.read(model, [rec_id])[0]
@@ -322,11 +337,59 @@ def fetch_record_graph(client: OdooRPCClient, model: str, rec_id: int,
         except OdooRPCError:
             tracking = []
 
+    # 2-hop expansion: stock moves inside deliveries, invoice lines inside invoices
+    deep: list[dict] = []
+    for rel in related_out:
+        rel_model = rel.get("relation")
+        row_ids = [r["id"] for r in rel["rows"] if r.get("id")]
+        if rel_model == "stock.picking" and row_ids:
+            deep.append(_fetch_moves(client, row_ids))
+        elif rel_model == "account.move" and row_ids:
+            deep.append(_fetch_invoice_lines(client, row_ids))
+
     return {
         "model": model, "id": rec_id,
         "name": rec.get("display_name") or rec.get("name") or f"{model}#{rec_id}",
         "scalars": scalars, "related": related_out, "messages": msgs, "tracking": tracking,
+        "deep": deep,
     }
+
+
+def _fetch_moves(client: OdooRPCClient, picking_ids: list[int]) -> dict:
+    """Fetch stock.move rows for a set of pickings — reveals product variant + sale_line_id per move."""
+    wanted = _existing_fields(client, "stock.move", [
+        "picking_id", "product_id", "product_uom_qty", "quantity", "qty_done",
+        "state", "sale_line_id", "date", "date_deadline", "reference",
+    ])
+    rows: list[dict] = []
+    try:
+        rows = client.search_read(
+            "stock.move", [["picking_id", "in", picking_ids]],
+            wanted or ["picking_id", "product_id", "state"],
+            order="id asc", limit=60,
+        )
+    except OdooRPCError:
+        pass
+    return {"section": "STOCK MOVES (per delivery — product variant + SO line link)", "rows": rows}
+
+
+def _fetch_invoice_lines(client: OdooRPCClient, invoice_ids: list[int]) -> dict:
+    """Fetch account.move.line rows for a set of invoices — reveals per-product billing detail."""
+    wanted = _existing_fields(client, "account.move.line", [
+        "move_id", "product_id", "name", "quantity", "price_unit", "price_subtotal",
+        "sale_line_ids", "discount", "parent_state",
+    ])
+    rows: list[dict] = []
+    try:
+        rows = client.search_read(
+            "account.move.line",
+            [["move_id", "in", invoice_ids], ["display_type", "=", "product"]],
+            wanted or ["move_id", "product_id", "quantity"],
+            order="move_id asc, id asc", limit=100,
+        )
+    except OdooRPCError:
+        pass
+    return {"section": "INVOICE LINES (per invoice — per-product billing detail)", "rows": rows}
 
 
 def _tracking_str(tv: dict) -> str:
@@ -359,6 +422,24 @@ def render_graph(graph: dict) -> str:
             lines.append("    • " + ", ".join(bits))
         lines.append("")
 
+    for deep in graph.get("deep", []):
+        if not deep.get("rows"):
+            continue
+        lines.append(deep["section"] + ":")
+        for row in deep["rows"]:
+            bits = []
+            for k, v in row.items():
+                if k == "id" or not _has_value(v):
+                    continue
+                display = v[1] if isinstance(v, (list, tuple)) and len(v) > 1 else v
+                # For sale_line_id / move_id show the ID too so agent can correlate
+                if k in ("sale_line_id", "move_id", "picking_id") and isinstance(v, (list, tuple)) and v:
+                    bits.append(f"{k}={v[1]}(id={v[0]})")
+                else:
+                    bits.append(f"{k}={display}")
+            lines.append("    • " + ", ".join(bits))
+        lines.append("")
+
     if graph["tracking"]:
         lines.append("FIELD-CHANGE HISTORY (tracked):")
         for tv in graph["tracking"]:
@@ -369,7 +450,7 @@ def render_graph(graph: dict) -> str:
         lines.append("CHATTER / LOG (oldest first):")
         for m in graph["messages"]:
             who = m["author_id"][1] if isinstance(m.get("author_id"), (list, tuple)) and len(m["author_id"]) > 1 else "system"
-            body = _strip_html(m.get("body"))[:200]
+            body = _strip_html(m.get("body"))[:300]
             line = f"  - [{m.get('date')}] {who}"
             if body:
                 line += f": {body}"

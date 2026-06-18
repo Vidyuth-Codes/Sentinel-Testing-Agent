@@ -217,9 +217,19 @@ def map_extraction(run_id: UUID, data: dict) -> tuple[list[Finding], TestPlan, s
 
 
 def _source_dir(addons: str | None) -> str | None:
-    """The addon path only counts as 'source' if it's a real Odoo addon folder."""
+    """Accept a single addon folder (has __manifest__.py) OR an addons root (a child has one)."""
     from pathlib import Path
-    return addons if (addons and (Path(addons) / "__manifest__.py").exists()) else None
+    if not addons:
+        return None
+    p = Path(addons)
+    if not p.is_dir():
+        return None
+    if (p / "__manifest__.py").exists():
+        return addons
+    # Addons root — folder containing multiple addon subfolders
+    if any((child / "__manifest__.py").exists() for child in p.iterdir() if child.is_dir()):
+        return addons
+    return None
 
 
 def generate_report(

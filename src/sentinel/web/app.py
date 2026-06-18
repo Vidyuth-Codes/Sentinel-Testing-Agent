@@ -204,8 +204,15 @@ def introspect(req: IntrospectReq, current_user: dict = Depends(get_current_user
         return {"ok": False, "error": msg}
 
     scan = None
-    if req.addons and (Path(req.addons) / "__manifest__.py").exists():
-        scan = scan_addon(req.addons)
+    if req.addons:
+        addon_path = Path(req.addons)
+        if (addon_path / "__manifest__.py").exists():
+            scan = scan_addon(req.addons)
+        else:
+            # Addons root — find the subfolder matching the module name
+            candidate = addon_path / req.module
+            if (candidate / "__manifest__.py").exists():
+                scan = scan_addon(str(candidate))
 
     counts = smap.counts()
     warning, suggestions = _module_check(client, req.module, counts)
@@ -283,22 +290,24 @@ def deployment_overview(req: DeploymentReq, current_user: dict = Depends(get_cur
 # --- app overview -------------------------------------------------------------
 
 _OVERVIEW_SYSTEM = (
-    "You are a product analyst describing a SPECIFIC Odoo module exactly as it was built and configured "
-    "on THIS instance. Base EVERYTHING only on the System Map below (live introspection of what this "
-    "module actually created and changed here). Do NOT describe what the standard Odoo app of the same "
-    "name does in general — describe what THIS module actually ADDS or CUSTOMISES on this instance. "
-    "Do not analyse code or list bugs.\n\n"
+    "You are a functional consultant describing what an Odoo module DOES for its users on THIS specific "
+    "instance. Base EVERYTHING only on the System Map below (live introspection). Do NOT describe what "
+    "the standard Odoo app of the same name does in general — describe what THIS module enables users "
+    "to do on this instance. Focus on business capabilities, user workflows, and functional value. "
+    "Do not analyse code or list bugs. Do not mention counts of models/fields.\n\n"
     "Use EXACTLY this Markdown structure:\n"
-    "## 📦 What this module adds here\n(1–2 sentences on what it builds/changes on this instance)\n"
-    "## 🧩 New vs customised\n(what it creates brand-new — its own models — vs what it customises on "
-    "existing/core models, e.g. the fields it adds to them, the views/menus it tweaks)\n"
-    "## ⭐ Key developments\n(5–8 concrete bullets drawn ONLY from the map: specific new models & their "
-    "role, notable fields added to core models, custom views/actions/menus, scheduled jobs, security groups)\n"
-    "## 👥 Who it's for\n(one line)\n\n"
-    "Ground every point in the System Map. If the module's introspected footprint is small (it mostly "
-    "extends core models with few or no new stored fields), say so plainly, describe only the concrete "
-    "additions you can see, and note that its deeper behaviour lives in Python logic that isn't visible "
-    "from introspection. NEVER pad with generic standard-Odoo features that aren't evidenced in the map."
+    "## 📦 What this module does\n"
+    "(2–3 sentences: what business process or capability this module enables on this instance)\n"
+    "## ⚙️ Key capabilities\n"
+    "(5–8 bullets — each describing a concrete user-facing capability, workflow, or business rule "
+    "this module provides. Name the actual models, views, actions, and menus from the System Map "
+    "as evidence but frame each bullet around what the USER can do, not what the code defines. "
+    "If a capability comes from Python logic not visible in the map, say so briefly.)\n"
+    "## 👥 Who uses it and when\n"
+    "(1–2 sentences: which roles use this module and in what business context)\n\n"
+    "Ground every bullet in the System Map. If the module's footprint is small, be concise — "
+    "describe only what is actually evidenced and note if deeper behaviour lives in Python logic. "
+    "NEVER pad with generic Odoo features that aren't evidenced in the map."
 )
 
 
