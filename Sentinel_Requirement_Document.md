@@ -2,7 +2,7 @@
 
 # Agentic QA & Bug-Detection Agent for Odoo
 
-**Version:** 2.0 — Odoo + Claude Code architecture  |  **Date:** June 2026  |  **Classification:** Internal — R&D
+**Version:** 2.1 — auth + guided UI + deep investigation  |  **Date:** June 2026  |  **Classification:** Internal — R&D
 **Status:** Active — aligned to the built system
 **Prepared by:** Vidyuth  |  **Author:** Vidyuth
 
@@ -25,6 +25,8 @@ Enterprise module** — its **addon source code** plus a **running Odoo instance
    crons, automations) by introspecting the live instance and scanning the source;
 2. **Finds bugs and logic gaps** across the **backend (Python)** and **frontend (OWL/JS/XML)**;
 3. Produces a **test plan** and a **bug/gap report** a developer can act on immediately.
+4. Supports **multi-user access** via an authentication system so multiple team members can use
+   the same Sentinel instance with isolated sessions.
 
 It works as an **interactive chat** and as a **one-shot audit**.
 
@@ -71,10 +73,12 @@ RAG. We build only the parts Claude Code can't know on its own: the **Odoo tools
   integration/contract and security/access issues.
 - **G3 — Ground every finding** in a concrete location (`models/asset.py:123` or
   `<module>.<model>.action_confirm`) with the offending snippet — no vague claims.
-- **G4 — Two modes:** interactive **chat** and a **one-shot audit** that emits a test plan + report.
+- **G4 — Two modes:** interactive **chat** (guided via mode picker) and a **one-shot audit** that
+  emits a test plan + report.
 - **G5 — Low false positives** through deterministic grounding + "report only what you can point to."
 - **G6 — Flat-cost reasoning** on the Claude Code subscription (no `ANTHROPIC_API_KEY` required).
 - **G7 — Read-only by default:** Sentinel inspects the addon and the instance but never modifies them.
+- **G8 — Multi-user access** via authentication (login, per-user session isolation, admin user management).
 
 ### 3.2 Non-Goals (current scope)
 - **NG1** — Sentinel does **not** auto-fix, auto-commit, or modify the addon. It suggests; humans apply.
@@ -101,7 +105,8 @@ RAG. We build only the parts Claude Code can't know on its own: the **Odoo tools
 ## 5. Scope
 
 ### 5.1 In scope
-- **Inputs:** a path to the **addon source** (folder with `__manifest__.py`) **and/or** connection
+- **Inputs:** a path to the **addon source** (a folder with `__manifest__.py` directly, or an
+  addons root folder whose child directories contain `__manifest__.py`) **and/or** connection
   details for a **running Odoo 18 instance** (URL, db, user, password/API key) plus the addon's
   **technical name**. Source path is optional — with only a staging link, Sentinel works in
   UI-flow and live-data mode.
@@ -134,10 +139,21 @@ formal compliance certification.
   **automations**, and **sequences** — attributing each to the addon via `ir.model.data`.
 - **FR-03** — **Statically scan** the addon source on disk (`__manifest__.py`, models, fields,
   decorators, methods) and **cross-check** it against the live System Map.
-- **FR-04** — Render an **understanding report** (Markdown + JSON) summarising new/extended models,
-  field counts, views, security, and automations.
+- **FR-04** — Render an **understanding report** (Markdown + JSON) summarising the module's
+  functional capabilities — what it does for users, key capabilities, and who uses it — rather than
+  structural new/extended counts.
 
-### 6.2 Reason — Claude Code engine (Phase 2, next)
+### 6.2 Authentication & multi-user access (Phase 1, built)
+- **FR-25** — Provide a **login page** so access requires authentication; unauthenticated requests
+  are rejected.
+- **FR-26** — On **first run** (no users exist), present a setup screen to create an admin account.
+- **FR-27** — Store user credentials securely: passwords hashed with **pbkdf2_hmac** (HMAC-SHA256
+  tokens for sessions); no new dependencies (stdlib only).
+- **FR-28** — Maintain **per-user session isolation**: conversation history, module context, and
+  audit state are keyed by `(username, module)` so concurrent users don't interfere.
+- **FR-29** — Admin users can **add and delete non-admin accounts** from the UI.
+
+### 6.3 Reason — Claude Code engine (Phase 2, built)
 - **FR-05** — Drive **Claude Code** headlessly (`claude -p`) with **read-only tools**
   (`Read`, `Grep`, `Glob`) so it inspects the addon but never edits it.
 - **FR-06** — Inject the **Odoo-QA skill** (the testing playbook) and the **System Map summary** as
@@ -156,14 +172,24 @@ formal compliance certification.
   the backend doesn't define (or vice-versa); `ir.model.access` / record rules that grant
   write/unlink too broadly or fail to isolate companies/users.
 - **FR-11** — **Ground every finding** in a concrete location (`file.py:line` or `model.method`)
-  with the offending snippet; prefer **fewer real findings** over many speculative ones.
+  with the offending snippet; prefer **fewer real findings** over many speculative ones. The skill
+  enforces **auto-model-discovery**: before stating anything about a model or field, read its source
+  file; never invent field names or state values.
 - **FR-12** — Generate a **test plan**: (1) a **requirement-coverage** table (intended behaviours →
   covered / partial / gap) and (2) concrete **test cases**, each with id, title, type
   (functional/workflow/ui/security/validation), **channel** (`rpc` or `ui`), priority,
   preconditions, numbered steps, and expected result — favouring the module's real `action_*`
   methods and state transitions.
+- **FR-30** — **Live-data investigation** (`/api/investigate/stream`): given a plain-language
+  problem description (e.g. "S00437 shows 0 delivered despite two completed deliveries"), fetch
+  the matching record and expand it **2 hops**: stock pickings → stock moves (product variant +
+  `sale_line_id`); invoices → invoice lines. Return a precise, actionable diagnosis with exact
+  record IDs, user names, and UTC timestamps.
+- **FR-31** — **Flow explanation** (`/api/flow/stream`): given a general question about the Odoo
+  project (e.g. "explain the purchase order flow"), ground the answer in real records and module
+  source where available.
 
-### 6.3 Execute — run real flows (Phase 3, planned)
+### 6.4 Execute — run real flows (Phase 3, planned)
 - **FR-13** — Provision a **duplicate database** (copy of the target DB) so execution never touches
   production data.
 - **FR-14** — **RPC flow executor:** run data/logic test cases over XML-RPC (create records, call
@@ -176,22 +202,31 @@ formal compliance certification.
 - **FR-17** — Produce a full **Test Plan + Results** document: each case marked pass/fail with
   evidence, plus the bugs surfaced during execution.
 
-### 6.4 Report & interaction modes
+### 6.5 Report & interaction modes
 - **FR-18** — Assign each finding a **category**, **layer** (backend/frontend/integration),
   **severity** (critical/high/medium/low/info), and **confidence** (0–1).
 - **FR-19** — Produce a **report** with: summary, severity rollup, per-finding detail (title,
-  description, location, evidence snippet, impact, suggested fix), the **test plan**, and a
-  **Coverage** note (what was read / what was *not* reached).
+  description, location, evidence snippet, impact, suggested fix), and the **test plan**.
 - **FR-20** — Export reports as **Markdown** and **JSON**; persist artifacts under `output/<run>/`.
 - **FR-21** — **One-shot audit mode:** a single call runs the full understand→reason flow and
   returns a test plan + bug/gap report.
-- **FR-22** — **Chat mode:** a multi-round conversation where the user can scope questions
-  ("check the asset disposal flow"), drill into findings, and ask follow-ups — with **conversation
-  continuity** (Claude Code session resumption per module).
-- **FR-23** — **Stream progress** in real time (assistant text deltas plus tool-call activity —
-  which file is being read/grepped) over Server-Sent Events.
+- **FR-22** — **Guided chat mode:** the user selects one of five modes via a **chat mode picker**:
+  Understand, Logic/UI Gaps, Code Errors, Report, General Question. Each mode routes to the
+  appropriate backend endpoint. A **↺ Switch** button re-presents the mode picker without wiping
+  conversation history.
+- **FR-23** — Within a mode, behaviour is consistent: Understand introspects; Logic/UI Gaps runs
+  live investigation; Code Errors triggers a source audit; Report opens a scope picker then
+  generates a PDF; General Question routes to flow explanation. All modes **stream progress** in
+  real time (text deltas + tool activity) over Server-Sent Events.
 - **FR-24** — Persist every run (inputs, System Map summary, findings, test plan, cost) under
   `output/<run>/`.
+- **FR-32** — **Report scope picker:** before generating a report, Sentinel asks the user whether
+  to cover the whole chat, the last conversation, or a new custom topic. The resulting report is
+  printable as a text-extractable PDF via the browser print window.
+- **FR-33** — **Report phrase auto-detection:** if the user types a phrase such as "give me a
+  report on X" in Report mode, Sentinel automatically generates a report on that topic without
+  requiring separate button presses.
+- **FR-34** — **Stop/cancel:** the user can cancel any running stream at any time.
 
 ---
 
@@ -203,11 +238,12 @@ formal compliance certification.
 | **NFR-02 — Execution isolation (Phase 3)** | Flow/UI execution runs only against a **duplicate DB** inside a **Docker sandbox** with CPU/memory/time caps — never the production database. |
 | **NFR-03 — Flat-cost reasoning** | Reasoning runs on the Claude Code **subscription**; `ANTHROPIC_API_KEY` is removed from the engine's environment so runs are billed to the subscription, not metered API. No per-token budget to manage. |
 | **NFR-04 — Accuracy** | Findings are grounded in real `file:line`/`model.method` evidence; the agent reports only defects it can point to. Target: high precision over recall (few false positives). |
-| **NFR-05 — Transparency** | Every finding cites evidence; every report ends with a **Coverage** note stating what was and wasn't reached (no silent omissions). |
+| **NFR-05 — Transparency** | Every finding cites evidence. The agent must read source files before making claims; if source is unavailable it states that explicitly rather than inventing data. |
 | **NFR-06 — Performance** | Deterministic introspection of a large module (~65 models) completes in seconds; chat responses begin streaming within a few seconds; a full audit completes within the engine timeout (default 600s sync / 1200s streamed). |
 | **NFR-07 — Resilience / graceful degradation** | A missing piece degrades gracefully: no Claude Code CLI → the UI falls back to a **mock** engine; an introspection/auth error returns a clear message rather than crashing; an engine timeout ends the run with an error event and no orphaned process. |
 | **NFR-08 — Extensibility** | New Odoo introspection facets, new static runners, and (Phase 3) new executors can be added without rewriting the engine. The Odoo-QA **skill** is editable Markdown — the testing playbook changes without code changes. |
 | **NFR-09 — Portability** | Runs on the developer's Windows workstation; the engine resolves the native `claude.exe` and keeps the command line under the Windows length limit. |
+| **NFR-10 — Authentication security** | Passwords stored as pbkdf2_hmac hashes; sessions authenticated via HMAC-SHA256 tokens; no plaintext credentials in storage or logs. Zero new dependencies (stdlib only). |
 
 ---
 
@@ -247,24 +283,37 @@ plus a severity and a confidence.
 
 ## 10. High-Level User Flows
 
-**A. Understand → chat**
+**A. Guided chat (mode picker)**
 ```
-User → connect (URL, db, user, password, module name, optional addon path)
-  → Sentinel: introspect (live RPC) + scan source → System Map + understanding report  (no LLM)
-User → asks a question about the module
-  → Claude Code reads the relevant models/views (Read/Grep), reasons with the System Map
-  → streams a grounded answer with file:line evidence
+User → open Sentinel (login required)
+  → mode picker appears in chat
+  → User selects a mode:
+      Understand        → introspect live instance + scan source → System Map + functional overview
+      Logic / UI Gaps   → describe a record problem → live-data investigation with 2-hop expansion
+      Code Errors       → addon path validated → full source audit via Claude Code
+      Report            → scope picker → generate PDF-printable report
+      General Question  → flow explanation grounded in real records
+  → User presses ↺ Switch at any time to return to mode picker without losing chat history
 ```
 
-**B. One-shot audit**
+**B. Understand — type module in chat**
 ```
-User → "Audit this module"
+User → selects "Understand a module" mode
+  → if module name is pre-filled → Sentinel introspects immediately
+  → if user types a module name in chat → Sentinel sets module field + introspects
+  → System Map fills in; functional overview streamed to chat
+```
+
+**C. One-shot audit**
+```
+User → connects (URL, db, user, password, module name, optional addon path)
+  → Code Errors mode → triggers full audit
   → Sentinel: System Map context + Odoo-QA skill → Claude Code reads the addon
   → returns a test plan (requirement coverage + rpc/ui cases) and a bug/gap report
-  → saved to output/audit-<module>/test_plan.md (+ JSON)
+  → saved to output/audit-<module>/
 ```
 
-**C. Execute (Phase 3)**
+**D. Execute (Phase 3)**
 ```
 Test plan → provision duplicate DB in a Docker sandbox
   → RPC flow executor runs data/logic cases; Playwright executor runs ui cases
@@ -275,20 +324,27 @@ Test plan → provision duplicate DB in a Docker sandbox
 
 ## 11. Acceptance Criteria
 
-- **AC-1 (Understand)** — Given a module name + a live instance, Sentinel builds a System Map with the
-  correct split of new vs extended models and accurate counts (fields, views, access rules, crons),
-  and renders the understanding report — with **no LLM** involved (FR-01…FR-04).
-- **AC-2 (Reason)** — A one-shot audit returns a test plan (requirement-coverage table + concrete
+- **AC-1 (Understand)** — Given a module name + a live instance, Sentinel builds a System Map and
+  renders a functional understanding report describing what the module does for users — with **no
+  LLM** involved (FR-01…FR-04).
+- **AC-2 (Auth)** — First run prompts for admin setup; subsequent visits require login; sessions are
+  isolated per user; admin can add/delete accounts (FR-25…FR-29, NFR-10).
+- **AC-3 (Reason)** — A one-shot audit returns a test plan (requirement-coverage table + concrete
   rpc/ui cases) **and** a bug/gap report whose findings each cite a real `file:line`/`model.method`
   with the offending snippet (FR-05…FR-12, FR-18…FR-21).
-- **AC-3 (Subscription)** — Reasoning runs with **no `ANTHROPIC_API_KEY`** present and is billed to
+- **AC-4 (Subscription)** — Reasoning runs with **no `ANTHROPIC_API_KEY`** present and is billed to
   the Claude Code subscription; cost is reported back (FR-07, NFR-03).
-- **AC-4 (Chat)** — Chat supports a multi-round session with conversation continuity and streamed
-  progress (assistant text + tool-call activity) (FR-22, FR-23, NFR-06).
-- **AC-5 (Graceful degradation)** — With no Claude Code CLI installed, the UI still runs and the
+- **AC-5 (Chat)** — The mode picker presents 5 modes; each mode routes correctly; ↺ Switch
+  returns to the picker without wiping history; streams text + tool activity (FR-22, FR-23, NFR-06).
+- **AC-6 (Investigation)** — Given a record identifier in Logic/UI Gaps mode, Sentinel fetches the
+  record, its stock moves (with `sale_line_id`), and its invoice lines, producing a diagnosis with
+  exact IDs and timestamps (FR-30, NFR-04).
+- **AC-7 (Report)** — Report mode presents a scope picker; generates a PDF-printable Markdown
+  report; detects "report on X" phrases and triggers automatically (FR-32, FR-33).
+- **AC-8 (Graceful degradation)** — With no Claude Code CLI installed, the UI still runs and the
   chat falls back to the mock engine with a clear message; an introspection/auth failure surfaces a
   clear error instead of crashing (NFR-07).
-- **AC-6 (Execute — Phase 3)** — Test cases run against a **duplicate DB** in a sandbox; the
+- **AC-9 (Execute — Phase 3)** — Test cases run against a **duplicate DB** in a sandbox; the
   production database is never written to; results are reported pass/fail with evidence
   (FR-13…FR-17, NFR-02).
 
@@ -298,8 +354,8 @@ Test plan → provision duplicate DB in a Docker sandbox
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| **Phase 1 — Understand + Frontend** | Odoo RPC tools (connect, introspect → System Map), addon source scan, web UI (chat + dashboard). The deterministic, no-LLM foundation. | ✅ Built & running |
-| **Phase 2 — Reason via Claude Code** | `/api/chat` + `/api/audit` + `sentinel audit` driven by the Claude Code engine + the Odoo-QA skill: reads the code + System Map and produces gap analysis, bug findings, and the test plan; a two-pass audit emits a human report **and** structured `findings.json` + `test_plan.json`. | ✅ Built |
+| **Phase 1 — Understand + Frontend** | Odoo RPC tools (connect, introspect → System Map), addon source scan, web UI (mode-picker chat + dashboard), auth system (login, per-user sessions, admin user management). The deterministic, no-LLM foundation. | ✅ Built & running |
+| **Phase 2 — Reason via Claude Code** | `/api/chat` + `/api/audit` + `/api/investigate` + `/api/flow` driven by the Claude Code engine + the Odoo-QA skill: reads the code + System Map and produces gap analysis, bug findings, and the test plan; 2-hop deep investigation; anti-hallucination rules in skill. | ✅ Built |
 | **Phase 3 — Execute + Report** | RPC **flow executor** (`sentinel run-tests`) + **Playwright UI smoke crawl** (`sentinel run-ui`) built: executable op-sequences over XML-RPC against a **cloned DB**, plus a web-client crawl capturing console/JS/network errors + screenshots; both emit reports. **Docker sandbox** still planned. | 🟡 Partial |
 
 ---
@@ -329,3 +385,5 @@ Test plan → provision duplicate DB in a Docker sandbox
 | **Record rule / access rule** | Odoo row-level (`ir.rule`) and model-level (`ir.model.access`) security definitions. |
 | **Duplicate DB** | A throwaway copy of the target database used for Phase 3 execution so production is never touched. |
 | **Neuro-symbolic** | Combining deterministic tools (introspection, linters) with LLM reasoning. |
+| **Mode picker** | The chat card shown at startup (and on ↺ Switch) listing the five interaction modes. |
+| **2-hop expansion** | Fetching stock moves from pickings and invoice lines from invoices, giving the investigation agent full product/quantity/linkage data. |

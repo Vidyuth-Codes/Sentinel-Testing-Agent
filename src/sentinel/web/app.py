@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import os
+import uuid
 from pathlib import Path
 
 import json as _json
@@ -46,6 +48,44 @@ _DEFAULTS = {
     "module":   os.environ.get("SENTINEL_MODULE", ""),
     "addons":   os.environ.get("SENTINEL_ADDONS", None),
 }
+
+
+# --- screenshot helper --------------------------------------------------------
+
+_SCREENSHOTS_DIR = Path("output") / "screenshots"
+
+
+def _save_screenshot(image_b64: str) -> str | None:
+    """Decode a data-URL or raw base64 image, save to disk, return the absolute path."""
+    try:
+        # strip the data-URL prefix if present: "data:image/png;base64,..."
+        raw = image_b64.split(",", 1)[-1] if "," in image_b64 else image_b64
+        data = base64.b64decode(raw)
+        _SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        ext = "png"
+        if image_b64.startswith("data:image/"):
+            mime_part = image_b64.split(";")[0].split("/")[-1]
+            ext = mime_part if mime_part in ("png", "jpg", "jpeg", "gif", "webp") else "png"
+        path = _SCREENSHOTS_DIR / f"screenshot_{uuid.uuid4().hex[:10]}.{ext}"
+        path.write_bytes(data)
+        return str(path.resolve())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _with_screenshot(question: str, image_b64: str | None) -> tuple[str, list[str]]:
+    """If image provided, save it and return augmented prompt + extra_dirs list."""
+    if not image_b64:
+        return question, []
+    img_path = _save_screenshot(image_b64)
+    if not img_path:
+        return question, []
+    note = (
+        f"[SCREENSHOT ATTACHED: The user has pasted a screenshot. "
+        f"It is saved at: {img_path} — use the Read tool to read it first "
+        f"and understand what is shown before answering.]\n\n"
+    )
+    return note + question, [str(_SCREENSHOTS_DIR.resolve())]
 
 
 # --- auth dependency ----------------------------------------------------------
@@ -339,6 +379,7 @@ class ChatReq(BaseModel):
     message: str
     module: str = _DEFAULTS["module"]
     addons: str | None = _DEFAULTS["addons"]
+    image_b64: str | None = None
 
 
 @app.post("/api/chat")
@@ -412,9 +453,10 @@ def chat_stream(req: ChatReq, current_user: dict = Depends(get_current_user)) ->
             yield _sse({"type": "result"})
             return
         src = _source_dir(req.addons)
+        prompt, extra_dirs = _with_screenshot(req.message, req.image_b64)
         try:
             for ev in _ENGINE.run_stream(
-                req.message, code_dir=src,
+                prompt, code_dir=src, extra_dirs=extra_dirs,
                 system_prompt=build_system_prompt(summary, has_source=src is not None),
                 resume=_SESSION.get(key),
             ):
@@ -453,13 +495,14 @@ def audit_stream(req: AuditReq, current_user: dict = Depends(get_current_user)) 
 
             report_md = (result_text or "".join(acc)).strip()
             if report_md:
-                yield _sse({"type": "status", "message": "structuring findings…"})
+                yield _sse({"type": "status", "message": "structuring + verifying findings…"})
                 outcome = structure_report(_ENGINE, module=req.module, report_md=report_md,
-                                           pass1_cost=cost)
+                                           addons=req.addons, pass1_cost=cost)
                 yield _sse({
                     "type": "summary", "ok": True,
                     "findings": len(outcome.findings),
                     "rollup": outcome.severity_rollup(),
+                    "verification": outcome.verification,
                     "test_cases": len(outcome.test_plan.test_cases),
                     "coverage": outcome.test_plan.coverage_rollup(),
                     "structured": outcome.structured,
@@ -483,6 +526,7 @@ class InvestigateReq(BaseModel):
     verify_ssl: bool = True
     question: str
     record: str | None = None
+    image_b64: str | None = None
 
 
 @app.post("/api/investigate/stream")
@@ -532,8 +576,10 @@ def investigate_stream(req: InvestigateReq,
             return
 
         sysp = build_investigation_system(render_graph(graph))
+        prompt, extra_dirs = _with_screenshot(req.question, req.image_b64)
         try:
-            for ev in _ENGINE.run_stream(req.question, code_dir=None, system_prompt=sysp, timeout=900):
+            for ev in _ENGINE.run_stream(prompt, code_dir=None, extra_dirs=extra_dirs,
+                                         system_prompt=sysp, timeout=900):
                 yield _sse(ev)
         except EngineUnavailable as exc:
             yield _sse({"type": "error", "message": str(exc)})
@@ -551,6 +597,7 @@ class FlowReq(BaseModel):
     module: str = _DEFAULTS["module"]
     verify_ssl: bool = True
     question: str
+    image_b64: str | None = None
 
 
 @app.post("/api/flow/stream")
@@ -566,6 +613,7 @@ def flow_stream(req: FlowReq, current_user: dict = Depends(get_current_user)) ->
             yield _sse({"type": "error", "message": str(exc)})
             return
 
+        prompt, extra_dirs = _with_screenshot(req.question, req.image_b64)
         target = resolve_flow(req.question)
         if not target:
             sysp = ("You are explaining an Odoo flow to a functional user, step by step in plain language. "
@@ -573,7 +621,8 @@ def flow_stream(req: FlowReq, current_user: dict = Depends(get_current_user)) ->
                     "illustrative example, and mention that live examples are available for: vendor bills, "
                     "customer invoices, sales orders, purchase orders, deliveries, payments, manufacturing "
                     "orders. Do not reference code.")
-            for ev in _ENGINE.run_stream(req.question, code_dir=None, system_prompt=sysp, timeout=600):
+            for ev in _ENGINE.run_stream(prompt, code_dir=None, extra_dirs=extra_dirs,
+                                         system_prompt=sysp, timeout=600):
                 yield _sse(ev)
             return
 
@@ -591,7 +640,8 @@ def flow_stream(req: FlowReq, current_user: dict = Depends(get_current_user)) ->
         yield _sse({"type": "text", "text": note})
         sysp = build_flow_system(label, render_flow_examples(ex), has_examples=has)
         try:
-            for ev in _ENGINE.run_stream(req.question, code_dir=None, system_prompt=sysp, timeout=900):
+            for ev in _ENGINE.run_stream(prompt, code_dir=None, extra_dirs=extra_dirs,
+                                         system_prompt=sysp, timeout=900):
                 yield _sse(ev)
         except EngineUnavailable as exc:
             yield _sse({"type": "error", "message": str(exc)})

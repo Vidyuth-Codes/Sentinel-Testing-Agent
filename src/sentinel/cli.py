@@ -101,12 +101,17 @@ def _cmd_audit(args: argparse.Namespace) -> int:
             print(f"  note: introspection skipped ({exc}); auditing from source only.")
 
     print(f"Sentinel v{__version__} - auditing '{args.module}' via Claude Code (this may take a few minutes)…")
-    outcome = run_full_audit(engine, module=args.module, addons=args.addons, summary=summary)
+    outcome = run_full_audit(engine, module=args.module, addons=args.addons, summary=summary,
+                             verify=not args.no_verify)
 
     roll = outcome.severity_rollup()
     sev = "  ".join(f"{k}:{v}" for k, v in roll.items() if v) or "no findings"
     cov = outcome.test_plan.coverage_rollup()
     print(f"  findings: {len(outcome.findings)}  ({sev})")
+    if outcome.verification:
+        v = outcome.verification
+        print(f"  verified: {v.get('verified', 0)} confirmed / {v.get('refuted', 0)} refuted "
+              f"/ {v.get('unverified', 0)} unverified")
     print(f"  test cases: {len(outcome.test_plan.test_cases)}  "
           f"coverage: {cov['covered']} ok / {cov['partial']} partial / {cov['gap']} gap")
     if not outcome.structured:
@@ -300,6 +305,8 @@ def build_parser() -> argparse.ArgumentParser:
     aud.add_argument("--url", default="http://localhost:8069", help="Odoo base URL (with --db)")
     aud.add_argument("--user", default="admin", help="Odoo login (with --db)")
     aud.add_argument("--password", default="admin", help="Odoo password or API key (with --db)")
+    aud.add_argument("--no-verify", action="store_true",
+                     help="Skip the adversarial verification pass (faster, but no false-positive control)")
     aud.set_defaults(func=_cmd_audit)
 
     # --- Odoo: execute RPC flows (Phase 3) ---

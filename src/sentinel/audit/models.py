@@ -48,8 +48,9 @@ class AuditOutcome(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     test_plan: TestPlan = Field(default_factory=TestPlan)
     coverage_note: str | None = None
-    cost_usd: float | None = None  # pass 1 + pass 2
+    cost_usd: float | None = None  # pass 1 + pass 2 + verification
     structured: bool = True  # False if pass-2 JSON extraction failed (Markdown still valid)
+    verification: dict | None = None  # {verified, refuted, unverified, cost} or None if skipped
     saved: dict[str, str] = Field(default_factory=dict)  # artifact name -> path
 
     def severity_rollup(self) -> dict[str, int]:

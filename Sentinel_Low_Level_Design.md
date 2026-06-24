@@ -2,8 +2,8 @@
 
 # Agentic QA & Bug-Detection Agent for Odoo
 
-**Version:** 2.0 — Odoo + Claude Code architecture  |  **Date:** June 2026  |  **Classification:** Internal — R&D
-**Status:** Active — Phase 1 built & running
+**Version:** 2.1 — auth + guided UI + deep investigation  |  **Date:** June 2026  |  **Classification:** Internal — R&D
+**Status:** Active — Phase 1 & 2 built & running
 **Prepared by:** Vidyuth  |  **Author:** Vidyuth
 
 **Source requirements:** [`Sentinel_Requirement_Document.md`](Sentinel_Requirement_Document.md)
@@ -23,28 +23,31 @@
 
 Sentinel splits cleanly into a **deterministic layer** (Odoo tools, no LLM) and a **reasoning
 layer** (Claude Code on the team's subscription). A FastAPI service exposes both; a single-page web
-UI renders chat + a System Map dashboard. Target-instance *execution* (Phase 3) runs against a
-**duplicate database** inside a **Docker sandbox**.
+UI renders chat + a System Map dashboard, behind an **authentication layer**. Target-instance
+*execution* (Phase 3) runs against a **duplicate database** inside a **Docker sandbox**.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │ FRONTEND  (web UI — this repo)                                 │
-│   chat · System Map dashboard · report viewer                  │
+│   auth overlay (login / first-run setup)                       │
+│   mode-picker chat · System Map dashboard · PDF report         │
 │   HTML/JS today · React/Redux planned                          │
 └───────────────┬───────────────────────────────────────────────┘
                 │  HTTP (FastAPI) + SSE
 ┌───────────────▼───────────────────────────────────────────────┐
 │ BACKEND  (FastAPI — src/sentinel/web/app.py)                  │
-│   /api/introspect → deterministic Odoo tools  (NO LLM)        │
+│   /api/auth/*        → authentication (stdlib only, no deps)  │
+│   /api/introspect    → deterministic Odoo tools  (NO LLM)     │
 │   /api/chat[/stream], /api/audit[/stream] → Claude Code       │
-└───────┬───────────────────────────────────────┬───────────────┘
-        │ deterministic tools                   │ reasoning engine
+│   /api/investigate[/stream], /api/flow[/stream] → Claude Code │
+└───────┬───────────────────────────────────┬───────────────────┘
+        │ deterministic tools               │ reasoning engine
 ┌───────▼────────────────────────┐   ┌──────────▼────────────────┐
 │ Odoo tools (src/sentinel/odoo) │   │ Claude Code engine         │
 │  rpc · introspect (System Map) │   │ (engine/claude_code.py)    │
 │  addon_scan (AST) · context    │   │  headless `claude -p`      │
-│  · report                      │   │  Read/Grep/Glob (read-only)│
-│                                │   │  guided by the Odoo-QA     │
+│  investigate · deployment      │   │  Read/Grep/Glob (read-only)│
+│  · report                      │   │  guided by the Odoo-QA     │
 │                                │   │  skill + System Map        │
 └────────────────────────────────┘   └────────────────────────────┘
         │                                       │
@@ -77,16 +80,16 @@ sentinel-testing-agent/
 │   ├── cli.py                 ← `sentinel web | introspect | scan-addons | audit | run-tests | run-ui`
 │   ├── paths.py               ← output dir resolution (output/<run>/)
 │   ├── core/
-│   │   └── models.py          ← Finding, CodeLocation, Evidence, RunResult + taxonomy (the findings schema)
+│   │   └── models.py          ← Finding, CodeLocation, Evidence, RunResult + taxonomy
 │   ├── odoo/                  ← DETERMINISTIC Odoo tools (no LLM) — the Understand layer
-│   │   ├── rpc.py             ← read-only XML-RPC client (auth, search_read, fields_get, execute_kw)
+│   │   ├── rpc.py             ← read-only XML-RPC client
 │   │   ├── introspect.py      ← build_system_map(): live instance → SystemMap
 │   │   ├── addon_scan.py      ← AST scan of addon source on disk; cross-check vs live
 │   │   ├── schema.py          ← SystemMap + OdooModelInfo/Field/View/Action/Access/Rule/Cron/…
 │   │   ├── context.py         ← summarize_system_map(): compact System Map brief for the engine
-│   │   ├── investigate.py     ← per-record diagnosis: resolve ref → fetch data graph → render for the engine
-│   │   ├── deployment.py      ← instance-wide scan: split installed modules into custom vs core Odoo
-│   │   └── report.py          ← System Map → Markdown "understanding report" + JSON
+│   │   ├── investigate.py     ← 2-hop live-data diagnosis (stock moves + invoice lines)
+│   │   ├── deployment.py      ← instance-wide scan: split installed modules into custom vs core
+│   │   └── report.py          ← System Map → Markdown understanding report + JSON
 │   ├── engine/               ← REASONING layer — Claude Code on subscription
 │   │   ├── claude_code.py     ← ClaudeCodeEngine: headless `claude -p`, sync + streaming
 │   │   └── skill.py           ← load Odoo-QA skill + assemble system prompt (+ System Map)
@@ -94,25 +97,31 @@ sentinel-testing-agent/
 │   │   ├── runner.py          ← generate_report (pass 1) + structure_report (pass 2) + persist
 │   │   └── models.py          ← TestPlan / RequirementCoverage / AuditTestCase / AuditOutcome
 │   ├── execute/              ← Phase 3 — RPC flow executor + UI smoke crawl
-│   │   ├── generate.py        ← Claude Code → executable op-sequences (create/call/assert)
+│   │   ├── generate.py        ← Claude Code → executable op-sequences
 │   │   ├── provision.py       ← clone source DB via the `db` service (or existing-DB opt-in)
-│   │   ├── runner.py          ← deterministic XML-RPC executor (refs, asserts, auto-fill, teardown)
-│   │   ├── ui_playwright.py    ← Playwright crawl of the web client (console/JS/network/screenshots)
+│   │   ├── runner.py          ← deterministic XML-RPC executor (refs, asserts, teardown)
+│   │   ├── ui_playwright.py    ← Playwright crawl (console/JS/network/screenshots)
 │   │   ├── report.py          ← results.{md,json} + cases.json + ui_results.{md,json}
-│   │   └── models.py          ← ExecStep / ExecCase / CaseResult / ExecReport / UIPageResult / UIReport
+│   │   └── models.py          ← ExecStep / ExecCase / CaseResult / ExecReport / UIPageResult
 │   └── web/
-│       ├── app.py             ← FastAPI: /api/config, /api/introspect, /api/chat[/stream], /api/audit[/stream]
-│       └── static/index.html  ← single-page UI (chat + System Map dashboard)
-├── skills/odoo-qa/SKILL.md    ← the testing playbook injected as Claude Code's system prompt
-├── tests/unit/                ← pytest suite (Odoo layer: System Map counts + the LLM brief)
-└── output/                    ← run artifacts (System Maps, test plans) — git-ignored
+│       ├── app.py             ← FastAPI: /api/auth/*, /api/config, /api/introspect,
+│       │                         /api/chat[/stream], /api/audit[/stream],
+│       │                         /api/investigate[/stream], /api/flow[/stream],
+│       │                         /api/deployment, /api/deployment/overview
+│       ├── auth.py            ← stdlib-only auth: pbkdf2_hmac passwords, HMAC-SHA256 tokens,
+│       │                         per-user session isolation, admin user management
+│       └── static/index.html  ← single-page UI (mode-picker chat + System Map dashboard)
+├── data/                      ← runtime data (users.json) — created on first run, git-ignored
+├── skills/odoo-qa/SKILL.md    ← testing playbook (anti-hallucination rules + auto-discovery)
+├── tests/unit/                ← pytest suite (Odoo layer: System Map counts + LLM brief)
+└── output/                    ← run artifacts — git-ignored
 ```
 
 > **Cleanup note.** The retired generic/metered-API modules — `llm/` (raw-Anthropic client), `plan/`
 > (metered-API planner), `ingest/` + `pipeline.py` + `report/` + `static/` (the generic
 > stack-detect → lint → report audit), and the `sentinel audit`/`plan` CLI commands — **have been
-> removed**. The one piece worth keeping, `summarize_system_map`, was relocated to `odoo/context.py`.
-> `core/models.py` is retained as the `Finding` schema that Phase 2 will populate.
+> removed**. `summarize_system_map` was relocated to `odoo/context.py`; `core/models.py` is
+> retained as the `Finding` schema.
 
 ---
 
@@ -147,7 +156,7 @@ class Finding(BaseModel):
     source: Source; location: CodeLocation; evidence: Evidence
     repro_steps: list[str]; suggested_fix: str | None
     status: Status = "new"; dedup_key: str | None; verified: bool = False
-    rule_id: str | None                  # optional stable check id (set by a future deterministic pass)
+    rule_id: str | None
 ```
 
 `RunResult` wraps a run: `project_ref`, `project_map`, `test_plan`, `findings`, `coverage`
@@ -155,13 +164,12 @@ class Finding(BaseModel):
 
 ### 3.2 `SystemMap` — `src/sentinel/odoo/schema.py`
 
-The agent's model of "what the addon built", produced by introspection (FR-02). Attribution to the
-addon comes from `ir.model.data`.
+The agent's model of "what the addon built", produced by introspection (FR-02).
 
 ```python
 class OdooField(BaseModel):
     name; string; ttype; required; readonly; store; relation; related; compute; help
-    owned_by_addon: bool                 # field added by the target addon
+    owned_by_addon: bool
 
 class OdooModelInfo(BaseModel):
     model; name; transient
@@ -262,13 +270,11 @@ core models. (FR-02)
 ### 5.3 `addon_scan.py` — static source cross-check
 AST-parses the addon on disk: `__manifest__.py` (name, version, depends), model classes, field
 declarations, decorators (`@api.depends`, `@api.constrains`, `@api.model_create_multi`), and method
-names. Produces an `AddonScan` used to cross-check the live System Map against the source (e.g. a
-field defined in code but absent from the instance, or vice-versa). (FR-03)
+names. Produces an `AddonScan` used to cross-check the live System Map against the source. (FR-03)
 
 ### 5.4 `report.py` — understanding report
 `render_system_map_markdown(smap, scan)` / `write_system_map(...)` render the System Map (+ optional
-scan) into a Markdown "understanding report" and JSON: new vs extended models, field counts, views,
-actions, security, automations. (FR-04)
+scan) into a Markdown understanding report and JSON. (FR-04)
 
 ---
 
@@ -287,6 +293,26 @@ Injecting the skill as the **system prompt** (rather than dropping a `.claude/` 
 user's addon) keeps the addon untouched (NFR-01). The skill is editable Markdown — the testing
 playbook evolves without code changes (NFR-08). (FR-06)
 
+### Skill — anti-hallucination rules (FR-11, NFR-05)
+
+The skill enforces two **hard rules** that cannot be overridden:
+
+**Never hallucinate.** Before stating anything about a model, field, method, or state value:
+- If addon source available → find the file and read it first.
+- If source NOT available → answer only from System Map and say so explicitly.
+- If unsure whether a field exists → grep before mentioning it.
+
+**Auto-discover before answering.** When a question references a model not yet read:
+1. Look up the file path in the System Map.
+2. Read that file fully.
+3. Grep for `@api.depends`, `@api.constrains`, `action_*`, compute methods.
+4. Follow `_inherit` one level deep.
+5. Only then answer.
+
+These rules were added after observing the agent giving hedged, imprecise answers in support
+scenarios — "I can't confirm whether…" — when the answer was available in the data it had
+already fetched.
+
 ---
 
 ## 6A. The Two-Pass Structured Audit (Phase 2) — `src/sentinel/audit/`
@@ -297,7 +323,7 @@ expensive code-reading happens once:
 
 **Pass 1 — `generate_report`.** Claude Code reads the addon (`--add-dir`) with the Odoo-QA skill +
 System Map as system prompt and writes the Markdown report (`REPORT_PROMPT`: requirement-coverage
-table, rpc/ui test cases, grounded findings with `file:line` evidence, and a Coverage note).
+table, rpc/ui test cases, grounded findings with `file:line` evidence).
 
 **Pass 2 — `structure_report`.** A second, cheap call (no code reading, no skill) converts that report
 into strict JSON against a fixed schema (`_EXTRACT_SYSTEM`). The result is parsed
@@ -312,6 +338,24 @@ The result is an **`AuditOutcome`** (Markdown + `Finding[]` + `TestPlan` + cover
 Pass 2 is **best-effort**: if the JSON can't be parsed, `structured=False` and the Markdown report is
 still saved — the human report is never lost.
 
+**`_source_dir()` — addons root support.** The audit runner accepts either a single addon folder
+(contains `__manifest__.py` directly) or an **addons root** folder (a child directory contains
+`__manifest__.py`). Both resolve correctly. This covers the case where the user points Sentinel at
+`C:\path\to\addons` (a folder containing multiple addon subfolders) rather than the specific addon
+inside it.
+
+```python
+def _source_dir(addons: str | None) -> str | None:
+    if not addons: return None
+    p = Path(addons)
+    if not p.is_dir(): return None
+    if (p / "__manifest__.py").exists(): return addons          # single addon
+    if any((child / "__manifest__.py").exists()                 # addons root
+           for child in p.iterdir() if child.is_dir()):
+        return addons
+    return None
+```
+
 **Persistence** (`_save`): `output/audit-<module>-<timestamp>/` gets `report.md`, `findings.json`
 (`Finding[]`), and `test_plan.json`.
 
@@ -321,96 +365,244 @@ emits a final `summary` event (counts, rollup, saved paths, cost).
 
 ---
 
+## 6B. Live-Data Investigation — per-record diagnosis (`src/sentinel/odoo/investigate.py`)
+
+The **support/troubleshooting** capability: a functional user asks, in plain language, about a
+*specific live record* — *"why does S00437 still show 0 delivered?"* — and Sentinel reads that
+record's real data and explains what happened. This is the forensic, record-level analysis.
+
+**Architecture — Sentinel queries, Claude Code reasons:**
+
+```
+question ─▶ extract_references()  ─ pull "S00437" / "INV/2026/00010" / "WH/OUT/00032" from the text
+         ─▶ resolve_record()      ─ search business models (sale.order, account.move, stock.picking…) by name
+         ─▶ fetch_record_graph()  ─ read the record + related rows (1 hop) + 2-hop expansion
+         ─▶ render_graph()        ─ compact text bundle (capped ~16k)
+         ─▶ Claude Code reasons over the data (INVESTIGATE_SYSTEM) ─▶ plain-language diagnosis
+```
+
+**2-hop expansion (added for investigation precision).**  The first hop fetches related records
+(pickings, invoices). The second hop immediately expands each picking into its **stock moves**
+(fields: `product_id`, `sale_line_id`, `qty_done`, `state`) and each invoice into its **account
+move lines** (product lines only). This gives the engine:
+
+- `sale_line_id = False` on a stock move → the move is **orphaned** (not linked to any sale line)
+- `product_id` on every move and invoice line → the **variant** actually shipped / billed
+- invoice lines per invoice → which products were billed on which invoice
+
+```python
+def _fetch_moves(client, picking_ids):
+    return client.search_read("stock.move",
+        [["picking_id", "in", picking_ids]],
+        ["product_id", "sale_line_id", "qty_done", "state", "name"])
+
+def _fetch_invoice_lines(client, invoice_ids):
+    return client.search_read("account.move.line",
+        [["move_id", "in", invoice_ids], ["product_id", "!=", False]],
+        ["product_id", "quantity", "price_unit", "move_id", "name"])
+```
+
+**`INVESTIGATE_SYSTEM` precision rules.** The prompt instructs the engine:
+- Cite EXACT record names, product IDs, user names, UTC timestamps.
+- Read `sale_line_id` on every stock move — if False/None the move is **ORPHANED**.
+- Read `product_id` on every stock move and invoice line — this is the VARIANT.
+- Build timeline from chatter authors and dates.
+- **NEVER** hedge with "I can't prove" if the answer is in the data.
+- **NEVER** invent record names, IDs, quantities, or events.
+
+Output structure: Root cause → Complete timeline → Records involved → Data integrity issues → What to do.
+
+Limits: `max_related_rows=20`, `max_messages=80` (up from 12/40 before 2-hop was added — the deep
+data requires more tokens).
+
+- **Read-only** — only `search_read`/`read`; never writes. Needs no source code.
+- Exposed at `POST /api/investigate/stream` — used by Logic/UI Gaps mode.
+
+---
+
 ## 6C. Deployment Scan — what's custom across the instance (`src/sentinel/odoo/deployment.py`)
 
-For a single addon you give a module name; for a **heavily-customised deployment** (many tailored
-modules) the first question is *"what has been custom-built here?"*. `scan_deployment` reads
-`ir.module.module` and splits installed modules into **custom/non-standard** vs **core Odoo**.
+For a **heavily-customised deployment** (many tailored modules) the first question is *"what has been
+custom-built here?"*. `scan_deployment` reads `ir.module.module` and splits installed modules into
+**custom/non-standard** vs **core Odoo**.
 
 The classifier combines two signals, because **author alone is unreliable** — partner developers
 frequently leave the scaffold's `author = "Odoo S.A."`. A module is treated as **core Odoo only if**
 its author is Odoo/OCA **AND** its version is the 4-part `series.x.y` form (e.g. `18.0.1.3`). Custom
 partner modules keep the scaffold's **5-part** version (`18.0.1.0.5`), so they're caught even with a
-faked author; non-Odoo authors (e.g. a client company) are caught regardless of version. Validated on
-a real client instance: author-only found **1** custom module; the combined rule correctly identified
-the full set of custom modules across multiple business areas.
+faked author. Validated on a real client instance.
 
 Exposed at `POST /api/deployment` (the list) + `POST /api/deployment/overview` (an engine narrative
-grouping the customisations by business area) and the **Scan Modules** button — each custom module is
-clickable to run the normal single-module Understand. Read-only.
+grouping the customisations by business area). Read-only.
 
 ---
 
-## 6B. Live-Data Investigation — per-record diagnosis (`src/sentinel/odoo/investigate.py`)
+## 6D. Authentication — `src/sentinel/web/auth.py` (FR-25–29, NFR-10)
 
-The **support/troubleshooting** capability: a functional user asks, in plain language, about a
-*specific live record* — *"why does S00437 still show 0 delivered?"* — and Sentinel reads that
-record's real data and explains what happened. This is the forensic, SO437-style analysis.
+Sentinel is a multi-user service. `auth.py` provides a complete authentication system using **stdlib
+only** (zero new dependencies):
 
-**Why not an MCP tool for the engine?** Claude Code accepts MCP servers, but the engine already
-avoids the Agent SDK because its stdio handshake hangs on this Windows setup — MCP uses the same
-handshake, so it's risky here. Instead Sentinel does the querying itself (deterministic, reliable)
-and feeds the result to the engine to reason over:
-
-```
-question ─▶ extract_references()  ─ pull "S00437" / "INV/2026/00010" / "WH/OUT/00032" from the text
-         ─▶ resolve_record()      ─ search business models (sale.order, account.move, stock.picking…) by name
-         ─▶ fetch_record_graph()  ─ read the record's state + related rows (1 hop) + chatter + field-change history
-         ─▶ render_graph()        ─ compact text bundle (capped ~16k)
-         ─▶ Claude Code reasons over the data (INVESTIGATE_SYSTEM) ─▶ plain-language diagnosis
+**Storage.** User accounts are stored in `data/users.json` as a list of objects:
+```json
+{"username": "admin", "hashed": "<pbkdf2_hmac hash>", "role": "admin"}
 ```
 
-- **Read-only** — only `search_read`/`read`; never writes. Needs no source code (it's about *data*, not code).
-- **Grounded** — the answer cites the record's actual related docs, statuses, and history; the prompt
-  forbids inventing values and tells the agent to say what extra record/field it would need.
-- Exposed at `POST /api/investigate/stream` and the **🔍 Diagnose** button.
+**Password hashing.** `hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 390000)`. Salt and
+hash stored as hex; brute-forcing is impractical.
+
+**Session tokens.** On successful login, a 32-byte cryptographically random token is generated,
+stored in `_SESSIONS` (in-memory dict `{token: username}`), and returned to the client as a cookie.
+Token validation uses `hmac.compare_digest` (constant-time, resistant to timing attacks).
+
+**First-run setup.** On startup, if `data/users.json` doesn't exist or contains no users, the
+`/api/auth/status` endpoint returns `{"first_run": true}`. The frontend shows a setup form;
+`/api/auth/setup` creates the admin account and seeds the file.
+
+**Per-user session isolation.** The FastAPI dependency `get_current_user()` extracts the username
+from the validated token. The caches `_SUMMARY` and `_SESSION` are keyed by `(username, module)` so
+sessions, conversation history, and audit state are fully isolated between concurrent users (FR-28).
+
+**Endpoints:**
+
+| Endpoint | Method | Behaviour |
+|---|---|---|
+| `/api/auth/status` | GET | Returns `{logged_in, first_run, username}` |
+| `/api/auth/login` | POST | Verify credentials → set `sentinel_token` cookie |
+| `/api/auth/logout` | POST | Delete token from `_SESSIONS`, clear cookie |
+| `/api/auth/setup` | POST | Create first admin (only works when no users exist) |
+| `/api/auth/users` | GET | List all users (admin only) |
+| `/api/auth/users` | POST | Create a new user (admin only) |
+| `/api/auth/users/{username}` | DELETE | Delete a user (admin only; cannot delete self) |
 
 ---
 
 ## 7. Web / API Layer — `src/sentinel/web/app.py` (FastAPI)
 
 `FastAPI(title="Sentinel — Odoo Testing Agent")`. A single `ClaudeCodeEngine` instance is shared;
-two in-memory caches key off the module: `_SUMMARY` (System Map brief) and `_SESSION` (Claude Code
-session id for multi-turn continuity).
+two in-memory caches key off `(username, module)`: `_SUMMARY` (System Map brief) and `_SESSION`
+(Claude Code session id for multi-turn continuity).
 
 | Endpoint | Layer | Behaviour | FRs |
 |---|---|---|---|
 | `GET /` | — | Serves `static/index.html`. | — |
 | `GET /api/config` | — | Version, connection defaults, and whether the engine is `claude-code` or `mock`. | — |
-| `POST /api/introspect` | deterministic | Connect → `build_system_map` → optional `scan_addon`; caches the System Map summary; returns counts, the understanding-report markdown, and the model list. **No LLM.** | FR-01–04 |
-| `POST /api/chat` | reasoning | `run_sync` with the skill+System Map prompt, the addon as `code_dir`, and the cached session for continuity; returns reply + cost. Falls back to `_mock_reply` if the engine is unavailable. | FR-22, NFR-07 |
-| `POST /api/chat/stream` | reasoning | SSE variant of chat — streams `text`/`tool`/`result` events. | FR-23 |
-| `POST /api/audit` | reasoning | Runs the two-pass `run_full_audit` (§6A): saves `report.md` + `findings.json` + `test_plan.json`; returns markdown, finding count, severity rollup, coverage rollup, `structured` flag, cost, and saved paths. | FR-18–21 |
-| `POST /api/audit/stream` | reasoning | SSE variant — streams pass 1 (the report) live, then runs pass 2 server-side and emits a final `summary` event (counts, rollup, saved paths, cost). | FR-18–21, FR-23 |
-| `POST /api/overview` | reasoning | Short business overview of the module from the System Map (no source). | — |
-| `POST /api/investigate/stream` | data + reasoning | Per-record diagnosis (§6B): resolve a reference → fetch the live data graph → engine explains what happened. Read-only. | support |
-| `POST /api/flow/stream` | data + reasoning | Explain a flow (bills, sales orders, deliveries…) grounded in **real example records** (counts per state + samples + one detailed example); hypothetical example if none exist. Read-only. | support |
-| `POST /api/deployment` | deterministic | Instance-wide scan (§6C): custom/non-standard modules vs core Odoo. | support |
-| `POST /api/deployment/overview` | reasoning | Engine narrative grouping the custom modules by business area. | support |
+| `GET /api/auth/status` | auth | Returns login state + first_run flag. | FR-25, FR-26 |
+| `POST /api/auth/login` | auth | Authenticate → session cookie. | FR-25, FR-27 |
+| `POST /api/auth/logout` | auth | Clear session. | FR-25 |
+| `POST /api/auth/setup` | auth | Create first admin (first-run only). | FR-26 |
+| `GET /api/auth/users` | auth | List accounts (admin). | FR-29 |
+| `POST /api/auth/users` | auth | Add account (admin). | FR-29 |
+| `DELETE /api/auth/users/{u}` | auth | Delete account (admin). | FR-29 |
+| `POST /api/introspect` | deterministic | Connect → `build_system_map` → optional `scan_addon`; caches summary; returns counts + understanding report markdown. **No LLM.** | FR-01–04 |
+| `POST /api/chat` | reasoning | `run_sync` with skill+System Map, addon as `code_dir`, cached session. Falls back to `_mock_reply` if engine unavailable. | FR-22, NFR-07 |
+| `POST /api/chat/stream` | reasoning | SSE variant — streams `text`/`tool`/`result` events. | FR-23 |
+| `POST /api/audit` | reasoning | Two-pass `run_full_audit` (§6A): saves `report.md` + `findings.json` + `test_plan.json`; returns markdown, finding count, severity rollup, cost, and saved paths. | FR-18–21 |
+| `POST /api/audit/stream` | reasoning | SSE variant — streams pass 1 live, then runs pass 2 server-side and emits a final `summary` event. | FR-18–21, FR-23 |
+| `POST /api/overview` | reasoning | Functional overview of the module (what it does for users, key capabilities, who uses it). Uses `_OVERVIEW_SYSTEM` prompt — no source required. | FR-04 |
+| `POST /api/investigate/stream` | data+reasoning | Per-record 2-hop diagnosis (§6B): resolve reference → fetch live data graph → engine explains. Read-only. | FR-30, support |
+| `POST /api/flow/stream` | data+reasoning | Explain a flow grounded in real example records; hypothetical example if none exist. Read-only. | FR-31, support |
+| `POST /api/deployment` | deterministic | Instance-wide scan (§6C): custom vs core Odoo modules. | support |
+| `POST /api/deployment/overview` | reasoning | Engine narrative grouping custom modules by business area. | support |
 
 Re-introspecting a module **resets** its cached session (`_SESSION.pop`) so a fresh understanding
 starts a fresh conversation. SSE responses set `Cache-Control: no-cache` / `X-Accel-Buffering: no`.
-
-**CLI surface** — `src/sentinel/cli.py`: `sentinel web` (launch the UI), `sentinel introspect`
-(System Map → files), `sentinel scan-addons` (static scan), and `sentinel audit --module M --addons P
-[--db DB …]` (the full Phase 2 audit via `run_full_audit`; with `--db` it introspects first for System
-Map context), `sentinel run-tests --module M --addons P --db DB [--use-existing-db | --master-pw …]`
-(the Phase 3 RPC flow executor, §10), and `sentinel run-ui --module M --db DB` (the Phase 3 Playwright
-UI smoke crawl, §10). The old generic `plan`/`audit` pipeline commands were removed in the cleanup
-(§9); the new `audit` drives the Claude Code engine.
 
 ---
 
 ## 8. Frontend — `src/sentinel/web/static/index.html`
 
 A **single-page app** with light ("Hotel Gold") and dark ("Hotel Night") themes (vanilla HTML/JS,
-`marked.js` for Markdown). Layout: a header with engine/connection status, a connection form
-(defaults overridable via environment variables), and a split pane — **chat** on one side, the
-**System Map dashboard** (counts, models, understanding report) on the other.
-**Understand** calls `/api/introspect`; **chat** streams from `/api/chat/stream`; a one-shot audit
-streams from `/api/audit/stream`; **Report** streams a functional flow report and auto-downloads
-it as a text-extractable PDF (browser print-window, content-cleaned — no Coverage notes or
-suggestion paragraphs).
+`marked.js` for Markdown). The UI has three states:
+
+### 8.1 Authentication overlay
+
+On page load, `boot()` calls `/api/auth/status`:
+- `first_run: true` → shows the admin setup form (username + password fields → `/api/auth/setup`).
+- `logged_in: false` → shows the login form (→ `/api/auth/login`).
+- `logged_in: true` → proceeds to the main UI.
+
+The admin panel (accessible by admin users) adds/removes accounts via the `/api/auth/users` endpoints.
+
+### 8.2 Connection bar
+
+Always visible once logged in. Fields: Odoo URL, database, user, password, module name, addon path,
+SSL verify toggle. Defaults populated from `/api/config`. Connection settings are saved to
+`localStorage` so they survive page refresh.
+
+The addon path field accepts either a **single addon folder** (with `__manifest__.py`) or an
+**addons root folder** (a parent folder containing multiple addon subfolders). Both are correctly
+resolved by `_source_dir()` in the backend.
+
+### 8.3 Mode-picker chat UI
+
+After login and connection, `boot()` calls `showModePicker()` — a chat card with five mode buttons:
+
+| Mode | Button label | Routes to | Behaviour |
+|------|-------------|-----------|-----------|
+| **Understand** | "Understand a module" | `/api/introspect` → `/api/overview` | If module field pre-filled → introspects immediately. If user types a module name in chat → sets the module field and introspects. |
+| **Logic / UI Gaps** | "Logic / UI Gaps" | `/api/investigate/stream` | Routes the typed question as the investigation query. |
+| **Code Errors** | "Code Errors" | `/api/audit/stream` | Checks addon path is filled first; if not, prompts. If path is filled and the message is empty, triggers the full audit. |
+| **Report** | "Report" | (scope picker + PDF) | Opens a scope picker (whole chat / last conversation / new topic). Generates a PDF-printable Markdown report via the browser print window. Detects "report on X" phrases in typed text and auto-triggers. |
+| **General Question** | "General Question" | `/api/flow/stream` | Routes the question to flow-explanation grounded in real records. |
+
+The mode picker card **disappears** when a mode is selected (`_lastPickerCard` tracks the DOM element
+and removes it). The mode badge in the panel title and the input placeholder text update to reflect
+the active mode. The **↺ Switch** button re-presents the mode picker without wiping conversation
+history or session state (FR-22).
+
+### 8.4 `send()` routing
+
+The `send()` function is the single message handler. It branches by `currentMode`:
+
+```js
+async function send() {
+    const m = $('msg').value.trim();
+    if (!currentMode) { showModePicker(); return; }
+    if (!m) { if (currentMode === 'errors') return startErrorScan(); return; }
+    switch (currentMode) {
+        case 'understand':
+            // type a module name → set module field + introspect
+            $('module').value = m; saveConn();
+            understand(); break;
+        case 'gaps':
+            await streamRun('/api/investigate/stream', {…, question: m}); break;
+        case 'errors':
+            if (!addons) { addBot('⚠️ Please fill in addon source path'); return; }
+            await streamRun('/api/chat/stream', {…, message: m}); break;
+        case 'report':
+            return sendAsReport(m);    // detects "report on X" phrases
+        case 'general':
+            await streamRun('/api/flow/stream', {…, question: m}); break;
+    }
+}
+```
+
+### 8.5 Stream cancellation (Stop button)
+
+An **AbortController** is created when a stream starts and stored globally. The Stop button (`id="stopBtn"`)
+calls `controller.abort()`. The SSE reader catches the `AbortError` and closes cleanly. Once the stream
+ends (naturally or cancelled), the Stop button becomes a Send button again. (FR-34)
+
+### 8.6 PDF report generation
+
+`makeReport()` calls `cleanReportContent()` to strip any Coverage sections and suggestion
+paragraphs from the content, then opens `window.print()`. The browser's print dialog produces a
+text-extractable PDF — no server-side rendering required. (FR-32)
+
+### 8.7 Overview prompt — functional capabilities framing
+
+`_OVERVIEW_SYSTEM` in `app.py` instructs the engine to describe what the module **does for users**
+(functional capabilities), not the structural new/extended counts. Output structure:
+
+- `## 📦 What this module does` — 2–3 sentences: what business process it enables
+- `## ⚙️ Key capabilities` — 5–8 bullets: concrete user-facing capabilities
+- `## 👥 Who uses it and when` — 1–2 sentences: roles and business context
+
+### 8.8 System Map dashboard
+
+The right pane renders: System Map counts (models, views, fields, security), the understanding
+report Markdown, and a model list. Clicking a module name in the deployment overview introspects
+that module directly.
 
 **Planned upgrade (roadmap):** migrate to **React** (with Redux for run/chat/findings state and a
 stream helper for SSE) once Phase 2 stabilises. The HTML/JS UI is sufficient until then. (Req §13 Q4)
@@ -419,27 +611,15 @@ stream helper for SSE) once Phase 2 stabilises. The HTML/JS UI is sufficient unt
 
 ## 9. Removed Legacy (record of the cleanup)
 
-The v1.0 generic/metered-API design left a body of code that the Odoo + Claude Code product never
-used. It has been **removed**; this section records what went and why, so the history is legible.
-
 | Removed | Was | Why it went |
 |---|---|---|
 | `llm/client.py` | Raw `anthropic` SDK wrapper (metered API, `.env` key, mock mode) | Reasoning moved to the Claude Code CLI (subscription); the SDK path and the API key are obsolete. |
-| `plan/` | Metered-API test-plan / coverage generator (`generate_test_plan`, `analyze`, `ingest`, `report`, `models`) | Gap analysis + test-plan generation is now Claude Code's job via `/api/audit`. |
-| `ingest/` + `pipeline.py` + `report/` | Generic stack-detect → run-command infer → lint → Markdown/JSON audit pipeline | Generic multi-stack auditing is out of scope (Odoo only). |
-| `static/` (`base`, `engine`, `runners/*`) | Deterministic linters: zero-dep Python AST checker + ruff/eslint adapters | Only ever invoked by the removed generic pipeline; Odoo-specific code analysis is the engine's job, guided by the skill. |
-| `sentinel audit` / `sentinel plan` CLI | Entry points for the two pipelines above | Their backing code was removed; the CLI is now `web` / `introspect` / `scan-addons`. |
-| `tests/sample_app/` + `test_ingest`/`test_pipeline`/`test_builtin_python` | Generic React+FastAPI fixture and its tests | Tested only the removed generic path; replaced by an Odoo-layer smoke test. |
-
-**Kept / relocated.** `summarize_system_map` was moved from `plan/context.py` to **`odoo/context.py`**
-(its only consumers are `odoo.schema`/`odoo.addon_scan`). `core/models.py` (the `Finding`/`RunResult`
-schema and taxonomy) is **retained** as the structured-findings contract Phase 2 will populate, even
-though no live caller produces `Finding`s yet.
-
-> **Neuro-symbolic note.** Removing the linters does **not** abandon the deterministic-first stance:
-> the System Map (live RPC introspection) and `addon_scan` (AST of the source) remain the deterministic
-> signals that ground the engine's reasoning. Re-introducing a deterministic Python lint pass for Odoo
-> backend code is a possible Phase 2 enhancement (§14).
+| `plan/` | Metered-API test-plan / coverage generator | Gap analysis + test-plan generation is now Claude Code's job via `/api/audit`. |
+| `ingest/` + `pipeline.py` + `report/` | Generic stack-detect → lint → audit pipeline | Generic multi-stack auditing is out of scope (Odoo only). |
+| `static/` (base, engine, runners/*) | Deterministic generic linters | Only ever invoked by the removed generic pipeline. |
+| `sentinel audit`/`plan` CLI (old) | Entry points for the two old pipelines | Backing code was removed; the CLI is now `web` / `introspect` / `scan-addons` / `audit` (new). |
+| `tests/sample_app/` + generic tests | Generic React+FastAPI fixture | Tested only the removed generic path. |
+| Action buttons (Understand, Scan Modules, Diagnose, Test Plan, Report) | Frontend HTML buttons in the toolbar / composer | Replaced by the mode-picker chat card and ↺ Switch button. |
 
 ---
 
@@ -447,7 +627,7 @@ though no live caller produces `Finding`s yet.
 
 Phase 3 turns reasoning into **executed results** against a database that is never production
 (FR-13–17, NFR-02). The **RPC flow executor is built** (`src/sentinel/execute/`); the Playwright UI
-executor and the Docker sandbox are still planned.
+executor is also built; the Docker sandbox is still planned.
 
 ```
                       ┌─ generate (Claude Code) ─ executable op-sequences (create/call/assert)   FR-14
@@ -460,42 +640,19 @@ executor and the Docker sandbox are still planned.
                                   └─▶ report: results.md + results.json + cases.json  ─▶ drop clone   FR-17
 ```
 
-Unlike Phase 2 (where Claude Code *is* the analysis), Phase 3 splits **non-deterministic
-generation** from **deterministic execution**: Claude Code reads the addon and emits a strict JSON
-set of executable op-sequences (`generate.py`); a plain XML-RPC runner (`runner.py`) then executes
-them with no LLM in the loop, so a run is reproducible. Each case is a sequence of ops sharing a
-symbol table (`create`/`search` store a record id under a `ref`; later steps use `"$ref"`):
-
-| op | does | 
-|----|------|
-| `create` | create a record, store its id as `ref` |
-| `search` | find an existing record id (for required relations) |
-| `call` | call a **public** `action_*`/`button_*` method on `ref_ids`; `expect: ok\|error` |
-| `write` | write values to records |
-| `assert` | read a field and compare to `equals` |
-
-**Outcome semantics** (`models.CaseResult.status`): **pass** = behaved as asserted; **fail** = an
-assertion was false or a call's expect didn't match (often a confirmed bug); **error** = an
-unexpected RPC fault in setup (usually an invalid generated case, not a defect). Faults are reduced
-to the meaningful exception line (`rpc._short_fault`), not raw tracebacks.
-
 **Safety (NFR-02):** `provision.py` clones the source DB via Odoo's `db` XML-RPC service
-(`OdooDbAdmin.duplicate`, needs the master password) into `<db>_sentinel_<ts>`, runs there, and
-**drops it after**. Running against an existing DB requires the explicit `--use-existing-db` opt-in;
-created records are unlinked best-effort per case regardless.
+(`OdooDbAdmin.duplicate`, needs the **master password** — the `admin_passwd` from `odoo.conf`, not
+the Odoo login password) into `<db>_sentinel_<ts>`, runs there, and **drops it after**. Running
+against an existing DB requires the explicit `--use-existing-db` opt-in.
 
 **UI smoke crawl (built — `ui_playwright.py`, FR-15).** `sentinel run-ui` introspects the addon's
 window actions, logs into the Odoo web client once with Playwright/Chromium, then opens each action
-(`/odoo/action-<id>`) in a fresh page and records what breaks: **console errors, uncaught JS
-exceptions, failed 4xx/5xx requests, and Odoo error dialogs**, with a **screenshot** per page. It's
-read-only browsing (no records created), so it needs no clone. Pages are classified **ok / issues /
-load_error** and written to `ui_results.md` + `ui_results.json`. Driving forms/workflows end-to-end
-(create via UI, click workflow buttons) is deliberately out of scope for v1 — the crawl already
-surfaces broken views, missing-field contract errors, and JS exceptions. Requires
-`pip install playwright` + `python -m playwright install chromium` (the `ui` extra).
+in a fresh page and records: **console errors, uncaught JS exceptions, failed 4xx/5xx requests, and
+Odoo error dialogs**, with a **screenshot** per page. Read-only (no records created), so needs no
+clone. Pages are classified **ok / issues / load_error**. Requires `pip install playwright` +
+`python -m playwright install chromium` (the `ui` extra).
 
-**Still planned:** the **Docker sandbox** (FR-16) for fully isolated, disposable execution. The
-current executors run directly against the configured Odoo.
+**Still planned:** the **Docker sandbox** (FR-16) for fully isolated, disposable execution.
 
 ---
 
@@ -504,24 +661,24 @@ current executors run directly against the configured Odoo.
 | Phase | Component | Key deliverable | FRs | Status |
 |---|---|---|---|---|
 | **1** | `odoo/` tools + `core/models` | XML-RPC client, `build_system_map` → SystemMap, `addon_scan`, understanding report | FR-01–04 | ✅ Done |
-| **1** | `web/` + `static/index.html` | FastAPI + SPA: Understand button (live introspection) + chat/dashboard | FR-21–23 | ✅ Done |
-| **2** | `engine/claude_code` + `engine/skill` | Headless Claude Code engine (sync+stream), Odoo-QA skill injection, subscription billing | FR-05–07 | ✅ Done |
-| **2** | `audit/` + `/api/chat`, `/api/audit`, `sentinel audit` | Real gap analysis, bug findings, and test-plan generation grounded in `file:line`; two-pass structured output (`findings.json` + `test_plan.json`) | FR-08–12, FR-18–21 | ✅ Built |
-| **3** | `execute/` (generate + provision + runner + report) | RPC flow executor: Claude-generated op-sequences run over XML-RPC against a cloned DB; pass/fail/error + results report; `sentinel run-tests` | FR-13, FR-14, FR-17 | ✅ Built |
-| **3** | `execute/ui_playwright` | Playwright UI smoke crawl: console/JS/network errors + error dialogs + screenshots per view; `sentinel run-ui` | FR-15 | ✅ Built |
+| **1** | `web/auth.py` + login UI | Login page, first-run setup, per-user session isolation, admin user management | FR-25–29, NFR-10 | ✅ Done |
+| **1** | `web/` + `static/index.html` | FastAPI + SPA: mode-picker chat, auth overlay, PDF report | FR-21–23, FR-32–34 | ✅ Done |
+| **2** | `engine/claude_code` + `engine/skill` | Headless Claude Code engine (sync+stream), Odoo-QA skill, subscription billing | FR-05–07 | ✅ Done |
+| **2** | `audit/` + `/api/chat`, `/api/audit`, `sentinel audit` | Real gap analysis, bug findings, test-plan generation; two-pass structured output | FR-08–12, FR-18–21 | ✅ Built |
+| **2** | `odoo/investigate.py` + `/api/investigate/stream` | 2-hop live-data diagnosis (stock moves + invoice lines); precision INVESTIGATE_SYSTEM | FR-30, NFR-04 | ✅ Built |
+| **2** | `/api/flow/stream` | Flow explanation grounded in real records | FR-31 | ✅ Built |
+| **3** | `execute/` (generate + provision + runner + report) | RPC flow executor: Claude-generated op-sequences against cloned DB; `sentinel run-tests` | FR-13, FR-14, FR-17 | ✅ Built |
+| **3** | `execute/ui_playwright` | Playwright UI smoke crawl; `sentinel run-ui` | FR-15 | ✅ Built |
 | **3** | Docker sandbox | Fully isolated, disposable execution environment | FR-16, NFR-02 | ⬜ Planned |
-| **—** | React frontend | Migrate the HTML/JS SPA to React/Redux | — | ⬜ Planned |
+| **—** | React frontend | Migrate HTML/JS SPA to React/Redux | — | ⬜ Planned |
 
 ### 11.1 Per-phase acceptance highlights
-- **Phase 1 (understand):** a target module introspects to the correct new/extended model split and counts;
-  the understanding report renders — with no LLM (AC-1).
-- **Phase 2 (reason):** one `/api/audit` call returns a test plan + bug/gap report whose findings each
-  cite a real `file:line`/`model.method`; the run is billed to the subscription with no
-  `ANTHROPIC_API_KEY` present (AC-2, AC-3).
-- **Phase 2 (degradation):** with no Claude Code CLI installed, the UI still runs and chat falls back
-  to the mock engine (AC-5).
-- **Phase 3 (execute):** test cases run against a duplicate DB; production is never
-  written to; results are pass/fail with evidence (AC-6).
+- **Phase 1 (understand):** introspects correctly; functional overview describes capabilities, not counts; auth gating works (AC-1, AC-2).
+- **Phase 2 (reason):** audit returns test plan + bug/gap report with `file:line` evidence; billed to subscription with no API key (AC-3, AC-4).
+- **Phase 2 (chat):** mode picker presents 5 modes; each routes correctly; ↺ Switch works without wiping history (AC-5).
+- **Phase 2 (investigation):** record diagnosis with 2-hop data expansion produces exact IDs, timestamps, user names (AC-6).
+- **Phase 2 (degradation):** no CLI → mock engine with clear message (AC-8).
+- **Phase 3 (execute):** test cases run against a duplicate DB; production never written to (AC-9).
 
 ---
 
@@ -530,13 +687,14 @@ current executors run directly against the configured Odoo.
 | Concern | Approach |
 |---|---|
 | **Read-only safety (NFR-01)** | Engine restricted to `Read,Grep,Glob`; introspection issues no writes; the skill states "never modify any file." |
-| **Execution isolation (NFR-02)** | Phase 3 executes only against a duplicate DB inside a Docker sandbox with resource caps. |
-| **Flat-cost reasoning (NFR-03)** | `ANTHROPIC_API_KEY` popped from the engine env (`SENTINEL_FORCE_SUBSCRIPTION=1` default) → billed to the subscription; `cost_usd` surfaced per run. |
-| **Graceful degradation (NFR-07)** | No CLI → mock engine; RPC auth/error → clear message (not a crash); engine timeout → `error` event, child killed (no orphans). |
-| **Grounding / accuracy (NFR-04)** | Deterministic System Map precedes reasoning; the skill demands `file:line`/`model.method` evidence and "report only what you can point to." |
-| **Transparency (NFR-05)** | Every report ends with a Coverage note (what was read / not reached). |
-| **Windows portability (NFR-09)** | Native `claude.exe` preferred; system prompt capped at 24k to stay under the command-line limit; cwd kept off the addon's git repo for fast startup. |
-| **Extensibility (NFR-08)** | New static runner = new `Runner` subclass; new introspection facet = new fetch in `introspect.py`; new executor (Phase 3) = new tool; the **skill** is editable Markdown. |
+| **Execution isolation (NFR-02)** | Phase 3 executes only against a duplicate DB (Docker sandbox planned). |
+| **Flat-cost reasoning (NFR-03)** | `ANTHROPIC_API_KEY` popped from the engine env → billed to the subscription; `cost_usd` surfaced per run. |
+| **Graceful degradation (NFR-07)** | No CLI → mock engine; RPC auth/error → clear message; engine timeout → `error` event, child killed. |
+| **Grounding / accuracy (NFR-04)** | Deterministic System Map precedes reasoning; skill demands `file:line`/`model.method` evidence; anti-hallucination rules forbid inventing field names or state values; auto-discovery protocol reads source before answering. |
+| **Transparency (NFR-05)** | Agent states which models were read and which weren't; investigation output cites exact record IDs and timestamps; no hedging when the data is present. |
+| **Authentication security (NFR-10)** | pbkdf2_hmac password hashes; HMAC-SHA256 session tokens; constant-time comparison; no plaintext in storage or logs; stdlib only. |
+| **Windows portability (NFR-09)** | Native `claude.exe` preferred; system prompt capped at 24k; cwd kept off the addon's git repo for fast startup. |
+| **Extensibility (NFR-08)** | New introspection facet = new fetch in `introspect.py`; new executor = new tool in `execute/`; the **skill** is editable Markdown. |
 
 ---
 
@@ -544,13 +702,27 @@ current executors run directly against the configured Odoo.
 
 **Understand → audit (current path):**
 ```
-User ─POST /api/introspect─▶ FastAPI ─▶ OdooRPCClient.authenticate()
+User ─POST /api/introspect─▶ FastAPI ─▶ auth check (get_current_user)
+                                       └▶ OdooRPCClient.authenticate()
                                        └▶ build_system_map() ─▶ SystemMap (+ scan_addon)
-   FastAPI ─cache _SUMMARY[module]─▶ returns counts + understanding-report markdown   (NO LLM)
+   FastAPI ─cache _SUMMARY[(user,module)]─▶ returns counts + understanding-report markdown (NO LLM)
 
 User ─POST /api/audit/stream─▶ FastAPI ─build_system_prompt(skill + System Map)─▶ ClaudeCodeEngine
    engine ─`claude -p` (Read/Grep/Glob over the addon, subscription)─▶ stream text/tool events ─▶ User
    engine ─result─▶ write output/audit-<module>/{report.md, findings.json, test_plan.json} ─▶ return markdown + cost_usd
+```
+
+**Investigation (Logic / UI Gaps mode):**
+```
+User types "S00437 shows 0 delivered" ─POST /api/investigate/stream─▶ FastAPI
+   └▶ extract_references("S00437")
+   └▶ resolve_record(client, "S00437") → sale.order record
+   └▶ fetch_record_graph(client, "sale.order", id)
+       ├─ 1-hop: fetch pickings, invoices, linked records
+       └─ 2-hop: _fetch_moves(picking_ids) → stock.move (product_id, sale_line_id, qty_done)
+                 _fetch_invoice_lines(invoice_ids) → account.move.line (product_id, quantity)
+   └▶ render_graph() → compact text bundle (~16k)
+   └▶ ClaudeCodeEngine (INVESTIGATE_SYSTEM) ─▶ stream precise diagnosis with exact IDs + timeline
 ```
 
 **Phase 3 execution (planned):**
@@ -565,13 +737,11 @@ test plan ─▶ Docker sandbox: copy DB → duplicate
 
 ## 14. Future Extensions (post-current)
 
-- **Phase 3 completion** — Docker sandbox (fully isolated, disposable execution environment); RPC flow executor and Playwright UI crawl are already built.
+- **Phase 3 completion** — Docker sandbox (fully isolated, disposable execution environment).
 - **React frontend** — migrate the HTML/JS SPA (Redux state + SSE stream helper).
-- **Structured findings** — have `/api/audit` emit `core/models.Finding[]` JSON (not only Markdown)
-  so results persist as `output/<run>/findings.json`.
-- **Deterministic Odoo lint pass (optional)** — re-introduce a focused Python AST / ruff check over
-  the addon source as a grounding signal for the engine (the removed generic linters, Odoo-scoped).
-- **Persistence** — move run artifacts from `output/<run>/` JSON files to a database for history/diff.
+- **Structured findings in UI** — render `core/models.Finding[]` JSON in the dashboard (counts, filters).
+- **Deterministic Odoo lint pass (optional)** — focused Python AST / ruff check as a grounding signal.
+- **Persistence** — move run artifacts from `output/<run>/` JSON files to a database.
 - **Auto-fix proposals as diffs** (human-approved) — generate a patch per finding.
 - **CI integration** — run on a branch, comment findings inline, fail on critical.
 - **MCP packaging** — expose the Odoo tools via an MCP server for use inside other agents.
@@ -583,11 +753,14 @@ test plan ─▶ Docker sandbox: copy DB → duplicate
 | Requirement group | Realised by |
 |---|---|
 | Understand (FR-01–04) | `odoo/rpc`, `odoo/introspect`, `odoo/addon_scan`, `odoo/report` (§5), `/api/introspect` (§7) — **built** |
+| Authentication (FR-25–29, NFR-10) | `web/auth.py`, `/api/auth/*` (§6D, §7) — **built** |
 | Reason engine (FR-05–07) | `engine/claude_code`, `engine/skill` (§4, §6) — **built** |
-| Bug/gap detection + test plan (FR-08–12, FR-18–20) | `audit/` two-pass runner + Odoo-QA skill via `sentinel audit` / `/api/audit` (§4, §6, §6A, §7) — **built** |
-| Execute — RPC flows (FR-13, FR-14, FR-17) | `execute/` generate + provision (clone) + runner + report via `sentinel run-tests` (§10) — **built** |
+| Bug/gap detection + test plan (FR-08–12, FR-18–20) | `audit/` two-pass runner + Odoo-QA skill via `sentinel audit` / `/api/audit` (§6A, §7) — **built** |
+| Live-data investigation (FR-30) | `odoo/investigate.py` with 2-hop expansion, `/api/investigate/stream` (§6B) — **built** |
+| Flow explanation (FR-31) | `/api/flow/stream` (§7) — **built** |
+| Mode-picker UI (FR-22, FR-32–34) | `static/index.html` mode picker, ↺ Switch, AbortController stop, scope picker, PDF via print (§8) — **built** |
+| Execute — RPC flows (FR-13, FR-14, FR-17) | `execute/` generate + provision + runner + report via `sentinel run-tests` (§10) — **built** |
 | Execute — UI crawl (FR-15) | `execute/ui_playwright` Playwright smoke crawl via `sentinel run-ui` (§10) — **built** |
 | Execute — sandbox (FR-16) | Docker sandbox (§10) — **planned** |
-| Report + modes (FR-18–24) | `core/models`, `/api/audit[/stream]`, `/api/chat[/stream]`, `output/<run>/` (§3, §7) |
 | Read-only / isolation / flat-cost (NFR-01–03) | read-only tools, Phase 3 sandbox, subscription billing (§4, §10, §12) |
 | Degradation / portability / extensibility (NFR-07–09) | mock fallback, native-CLI resolution, editable skill (§4, §12) |

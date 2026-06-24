@@ -80,8 +80,8 @@ class ClaudeCodeEngine:
         return self.cli_path is not None
 
     def run_sync(
-        self, prompt: str, *, code_dir: str | None = None, system_prompt: str = "",
-        resume: str | None = None, max_turns: int = 40, timeout: int = 600,
+        self, prompt: str, *, code_dir: str | None = None, extra_dirs: list[str] | None = None,
+        system_prompt: str = "", resume: str | None = None, max_turns: int = 40, timeout: int = 600,
     ) -> EngineResult:
         if not self.available():
             raise EngineUnavailable("`claude` CLI not found (npm install -g @anthropic-ai/claude-code)")
@@ -105,6 +105,9 @@ class ClaudeCodeEngine:
             cmd += ["--append-system-prompt", system_prompt]
         if code_dir:
             cmd += ["--add-dir", code_dir]
+        for d in (extra_dirs or []):
+            if d and Path(d).is_dir():
+                cmd += ["--add-dir", d]
         if resume:
             cmd += ["--resume", resume]
 
@@ -142,8 +145,8 @@ class ClaudeCodeEngine:
     # --- streaming -------------------------------------------------------
 
     def run_stream(
-        self, prompt: str, *, code_dir: str | None = None, system_prompt: str = "",
-        resume: str | None = None, timeout: int = 900,
+        self, prompt: str, *, code_dir: str | None = None, extra_dirs: list[str] | None = None,
+        system_prompt: str = "", resume: str | None = None, timeout: int = 900,
     ) -> Iterator[dict]:
         """Yield progress events as Claude Code works. Event shapes:
             {"type":"text","text": ...}      assistant prose (stream into the bubble)
@@ -173,6 +176,9 @@ class ClaudeCodeEngine:
             cmd += ["--append-system-prompt", system_prompt]
         if code_dir:
             cmd += ["--add-dir", code_dir]
+        for d in (extra_dirs or []):
+            if d and Path(d).is_dir():
+                cmd += ["--add-dir", d]
         if resume:
             cmd += ["--resume", resume]
 

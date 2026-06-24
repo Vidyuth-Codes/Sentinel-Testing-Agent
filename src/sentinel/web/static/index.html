@@ -148,6 +148,17 @@
   .mode-badge{font-size:11px;color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:2px 9px;white-space:nowrap;font-weight:600}
   .scope-btn{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:12px;font-family:inherit;color:var(--text);transition:border-color .15s}
   .scope-btn:hover{border-color:var(--accent)}
+
+  /* ── Screenshot attach & preview ── */
+  #attachBtn{background:var(--panel2);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;font-size:15px;line-height:1;transition:border-color .15s,color .15s}
+  #attachBtn:hover{border-color:var(--accent);color:var(--text)}
+  .img-preview-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel2);border-top:1px solid var(--line);animation:thinkIn .18s ease}
+  .img-thumb{width:60px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--line);flex:none}
+  .img-label{font-size:11.5px;color:var(--muted);flex:1}
+  .img-clear{background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;padding:0 4px;line-height:1;transition:color .12s}
+  .img-clear:hover{color:var(--crit)}
+  /* Image thumbnail inside a chat bubble */
+  .msg img.chat-img{max-width:260px;max-height:180px;border-radius:8px;display:block;margin:4px 0 2px;object-fit:cover;border:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -234,7 +245,13 @@
       <button id="mapToggle" class="paneltoggle" title="Show/hide the System Map">Hide map ⟩</button>
     </div>
     <div class="chat" id="chat"></div>
+    <div id="imgPreviewBar" style="display:none" class="img-preview-bar">
+      <img class="img-thumb" id="imgThumb" src="" alt="screenshot"/>
+      <span class="img-label">📸 Screenshot attached — will be sent with your message</span>
+      <button class="img-clear" onclick="clearPendingImage()" title="Remove screenshot">✕</button>
+    </div>
     <div class="composer">
+      <button id="attachBtn" title="Attach a screenshot (or just paste one with Ctrl+V)" onclick="triggerFileAttach()">📎</button>
       <input id="msg" placeholder="Select a mode to get started…" />
       <button id="switchBtn" title="Switch to a different mode" style="background:var(--panel2);color:var(--text);border:1px solid var(--line)">↺ Switch</button>
       <button id="stopBtn" title="Stop current operation" style="display:none;background:var(--crit);color:#fff" onclick="stopAll()">■ Stop</button>
@@ -256,6 +273,7 @@ let CFG = null;
 let CURRENT_USER = null;
 let _activeCtrl = null;
 let currentMode = null;
+let pendingImage = null;   // {data: "data:image/png;base64,...", mime: "image/png"}
 
 function setActive(on){
   if(on){
@@ -373,6 +391,60 @@ function promptReportTopic(){
   addBot('Type the report topic in the box below and press **Send**.');
   $('msg').focus();
 }
+
+// ── Screenshot attach / paste ─────────────────────────────────────────────────
+function showImagePreview(dataUrl){
+  $('imgThumb').src = dataUrl;
+  $('imgPreviewBar').style.display = 'flex';
+}
+
+function clearPendingImage(){
+  pendingImage = null;
+  $('imgPreviewBar').style.display = 'none';
+  $('imgThumb').src = '';
+}
+
+function triggerFileAttach(){
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.onchange = e => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      pendingImage = {data: ev.target.result, mime: file.type};
+      showImagePreview(pendingImage.data);
+      $('msg').focus();
+      if(!currentMode) addBot('📸 Screenshot attached. Choose a mode to investigate it — **Logic / UI Gaps** works best for Odoo error screenshots.');
+    };
+    reader.readAsDataURL(file);
+  };
+  inp.click();
+}
+
+// Ctrl+V paste anywhere in the app captures images
+document.addEventListener('paste', e => {
+  if($('authOverlay').style.display !== 'none') return;   // ignore while on login screen
+  const items = e.clipboardData?.items;
+  if(!items) return;
+  for(const item of items){
+    if(item.type.startsWith('image/')){
+      const file = item.getAsFile();
+      if(!file) continue;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        pendingImage = {data: ev.target.result, mime: item.type};
+        showImagePreview(pendingImage.data);
+        $('msg').focus();
+        if(!currentMode) addBot('📸 Screenshot pasted. Choose a mode to investigate it — **Logic / UI Gaps** works best for Odoo error screenshots.');
+      };
+      reader.readAsDataURL(file);
+      e.preventDefault();
+      break;
+    }
+  }
+});
 
 // ── Token helpers ──────────────────────────────────────────────────────────────
 function getToken(){ return localStorage.getItem('sentinel-token') || ''; }
@@ -569,7 +641,14 @@ function addMsg(text, who){
   $('chat').appendChild(d); $('chat').scrollTop=$('chat').scrollHeight;
 }
 const addBot = t => addMsg(t,'bot');
-const addUser = t => addMsg(t,'user');
+function addUser(text, imageDataUrl){
+  const d=document.createElement('div'); d.className='msg user';
+  let html='';
+  if(imageDataUrl) html+=`<img class="chat-img" src="${imageDataUrl}" alt="screenshot"/>`;
+  if(text) html+=`<span>${escapeHtml(text)}</span>`;
+  d.innerHTML=html;
+  $('chat').appendChild(d); scrollChat();
+}
 function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
 function renderChips(items){
@@ -699,6 +778,8 @@ function auditSummaryMd(ev){
     .filter(([k])=>r[k]).map(([k,e])=>`${e} ${r[k]} ${k}`).join(' · ');
   let s=`**✅ Audit complete — ${ev.findings||0} findings**`;
   if(sev) s+=`\n\n${sev}`;
+  if(ev.verification){ const v=ev.verification;
+    s+=`\n\n**Verified:** ✅ ${v.verified||0} confirmed · 🚫 ${v.refuted||0} refuted (false positive) · ❓ ${v.unverified||0} unverified — each finding's cited code was re-read.`; }
   s+=`\n\n**${ev.test_cases||0} test cases** · coverage ${cov.covered||0} covered / ${cov.partial||0} partial / ${cov.gap||0} gap`;
   if(ev.saved_to){
     const files=Object.entries(ev.saved_to).filter(([k])=>k!=='dir').map(([,v])=>'`'+base(v)+'`');
@@ -709,8 +790,8 @@ function auditSummaryMd(ev){
 }
 
 // ── Streaming runner ──────────────────────────────────────────────────────────
-async function streamRun(url, body, opening, onComplete){
-  if(opening) addUser(opening);
+async function streamRun(url, body, opening, onComplete, openingImage){
+  if(opening) addUser(opening, openingImage || null);
   const bubble=document.createElement('div'); bubble.className='msg bot';
   const md=document.createElement('div'); md.className='markdown'; bubble.appendChild(md);
   $('chat').appendChild(bubble);
@@ -830,13 +911,19 @@ async function explainFlow(){
 
 async function send(){
   const m = $('msg').value.trim();
+  // allow sending image-only (no text) in gaps/general modes
   if(!currentMode){ showModePicker(); return; }
-  if(!m){
+  if(!m && !pendingImage){
     if(currentMode === 'errors') return startErrorScan();
     return;
   }
+  // snapshot + clear before any await so user can paste the next one immediately
+  const img = pendingImage ? pendingImage.data : null;
+  if(pendingImage) clearPendingImage();
+
   switch(currentMode){
     case 'understand':
+      // understand doesn't use images — just introspect
       $('msg').value='';
       $('module').value = m;
       saveConn();
@@ -847,16 +934,22 @@ async function send(){
       $('msg').value='';
       await streamRun('/api/investigate/stream',{
         url:$('url').value, db:$('db').value, user:$('user').value, password:$('password').value,
-        module:$('module').value, verify_ssl:!$('insecure').checked, question:m,
-      }, '🔎 '+m);
+        module:$('module').value, verify_ssl:!$('insecure').checked,
+        question: m || '(see attached screenshot)',
+        image_b64: img,
+      }, m || '📸 Screenshot', null, img);
       break;
     case 'errors':
       if(!$('addons').value.trim()){
         addBot('⚠️ Please fill in the **addon source path** above first.');
+        if(img){ pendingImage={data:img,mime:'image/png'}; showImagePreview(img); }
         return;
       }
       $('msg').value='';
-      await streamRun('/api/chat/stream',{message:m,module:$('module').value,addons:$('addons').value}, m);
+      await streamRun('/api/chat/stream',{
+        message: m || '(see attached screenshot)',
+        module:$('module').value, addons:$('addons').value, image_b64: img,
+      }, m || '📸 Screenshot', null, img);
       break;
     case 'report':
       return sendAsReport(m);
@@ -864,8 +957,10 @@ async function send(){
       $('msg').value='';
       await streamRun('/api/flow/stream', {
         url:$('url').value, db:$('db').value, user:$('user').value, password:$('password').value,
-        module:$('module').value, verify_ssl:!$('insecure').checked, question:m,
-      }, '💬 '+m);
+        module:$('module').value, verify_ssl:!$('insecure').checked,
+        question: m || '(see attached screenshot)',
+        image_b64: img,
+      }, m || '📸 Screenshot', null, img);
       break;
   }
 }

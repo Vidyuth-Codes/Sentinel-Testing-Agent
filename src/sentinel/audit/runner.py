@@ -249,10 +249,11 @@ def generate_report(
 
 
 def structure_report(
-    engine: ClaudeCodeEngine, *, module: str, report_md: str,
-    pass1_cost: float | None = None, save: bool = True, timeout: int = 300,
+    engine: ClaudeCodeEngine, *, module: str, report_md: str, addons: str | None = None,
+    pass1_cost: float | None = None, save: bool = True, verify: bool = True, timeout: int = 300,
 ) -> AuditOutcome:
-    """Pass 2 — convert the Markdown report into structured JSON, then persist artifacts."""
+    """Pass 2 — convert the Markdown report into structured JSON, dedup + verify the
+    findings (false-positive control), then persist artifacts."""
     run_id = uuid4()
     findings: list[Finding] = []
     test_plan = TestPlan()
@@ -269,9 +270,19 @@ def structure_report(
     except Exception:  # noqa: BLE001 — extraction is best-effort; the Markdown report is the source of truth
         structured = False
 
+    # Pass 3 — false-positive control: dedup, then adversarially verify against the code.
+    verification: dict | None = None
+    if structured and findings:
+        from sentinel.audit.verify import dedup_findings, verify_findings
+        findings = dedup_findings(findings)
+        if verify:
+            findings, verification = verify_findings(engine, findings, addons=addons)
+            cost += verification.get("cost", 0.0)
+
     outcome = AuditOutcome(
         module=module, markdown=report_md, findings=findings, test_plan=test_plan,
         coverage_note=note, cost_usd=round(cost, 6) if cost else None, structured=structured,
+        verification=verification,
     )
     if save:
         outcome.saved = _save(outcome)
@@ -280,21 +291,36 @@ def structure_report(
 
 def run_full_audit(
     engine: ClaudeCodeEngine, *, module: str, addons: str | None,
-    summary: str | None = "", save: bool = True, report_timeout: int = 1200,
+    summary: str | None = "", save: bool = True, verify: bool = True, report_timeout: int = 1200,
 ) -> AuditOutcome:
-    """Convenience: pass 1 then pass 2 (used by the CLI and the non-streaming endpoint)."""
+    """Convenience: pass 1 then pass 2+verify (used by the CLI and the non-streaming endpoint)."""
     report = generate_report(engine, module=module, addons=addons, summary=summary,
                              timeout=report_timeout)
-    return structure_report(engine, module=module, report_md=report.text,
-                            pass1_cost=report.cost_usd, save=save)
+    return structure_report(engine, module=module, report_md=report.text, addons=addons,
+                            pass1_cost=report.cost_usd, save=save, verify=verify)
 
 
 # --- persistence -------------------------------------------------------------
 
 
+def _verification_section(outcome: AuditOutcome) -> str:
+    v = outcome.verification
+    if not v:
+        return ""
+    md = (f"\n\n---\n\n## Verification (false-positive control)\n\n"
+          f"✅ **{v.get('verified', 0)} verified** · 🚫 **{v.get('refuted', 0)} refuted** "
+          f"· ❓ {v.get('unverified', 0)} unverified — each finding's cited code was re-read.\n")
+    refuted = [f for f in outcome.findings if f.status == "false_positive"]
+    if refuted:
+        md += "\n**Filtered out as likely false positives:**\n"
+        for f in refuted:
+            md += f"- ~~{f.title}~~ — {f.evidence.tool_output or 'refuted'}\n"
+    return md
+
+
 def _save(outcome: AuditOutcome) -> dict[str, str]:
     out = run_dir(f"audit-{outcome.module}")
-    (out / "report.md").write_text(outcome.markdown, encoding="utf-8")
+    (out / "report.md").write_text(outcome.markdown + _verification_section(outcome), encoding="utf-8")
     (out / "findings.json").write_text(
         json.dumps([f.model_dump(mode="json") for f in outcome.findings], indent=2),
         encoding="utf-8",

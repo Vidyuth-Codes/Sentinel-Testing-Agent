@@ -1,21 +1,20 @@
 # Sentinel — Agentic QA & Bug-Detection Agent for Odoo
 
 **Version:** 0.2 (Claude Code architecture)  |  **Target:** Odoo 18 Enterprise
-**Status:** Phases 1 & 2 built; Phase 3 RPC flow + Playwright UI executors built; live-data **record diagnosis** built (Docker sandbox pending)
+**Status:** Phases 1 & 2 built; Phase 3 RPC flow + Playwright UI executors built; live-data **record investigation** built; **auth + guided UI** built (Docker sandbox pending)
 
-> **Functional/support mode:** with just a staging link (no source), an end user can ask plain-language
-> questions ("why does S00437 still show 0 delivered?") and click **🔍 Diagnose** — Sentinel reads that
-> record's live data (state, related deliveries/invoices, field-change history, chatter) and explains
-> what happened and why, in plain terms. Read-only.
+> **Guided mode-based UI:** instead of raw buttons, Sentinel opens with a five-option mode picker
+> in chat. The user chooses what they want to do — Understand, find Logic/UI Gaps, scan Code Errors,
+> get a Report, or ask a General Question — and Sentinel adapts its behaviour and routing accordingly.
 >
-> **Flow explanations from real data:** ask "explain the flow of bills" (or sales orders, deliveries…)
-> and the chat auto-grounds the walkthrough in **actual records** — how many are at each stage, named
-> examples, and one record's full journey — falling back to an illustrative example only if none exist.
+> **Live-data record investigation:** with just a staging link (no source), describe a problem in
+> plain language — *"S00437 shows 0 delivered despite two completed deliveries"* — and Sentinel reads
+> that record's live data (state, stock moves with sale_line_id, invoice lines, field-change history,
+> chatter) and produces a precise, actionable diagnosis with exact IDs, timestamps, and user names.
 >
-> **Whole-deployment view:** for a heavily-customised instance, **Scan Modules** lists every custom/
-> non-standard module (detecting partner modules even when their author is faked as "Odoo S.A.", via
-> the tell-tale 5-part version), summarises the customisations by area, and lets you click any module
-> to Understand it in depth.
+> **Whole-deployment view:** for a heavily-customised instance, the General Question mode and
+> Scan Modules capability list every custom/non-standard module, summarise the customisations by
+> area, and let you drill into any module in depth.
 
 ---
 
@@ -40,20 +39,22 @@ Claude Code can't know on its own: the **Odoo tools** and the **QA skill**.
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │ FRONTEND  (web UI — this repo, built)                          │
-│   chat · System Map dashboard · report viewer · PDF download   │
+│   mode-picker chat · System Map dashboard · PDF report         │
+│   auth overlay (login / first-run setup) · user management     │
 └───────────────┬───────────────────────────────────────────────┘
-                │  HTTP (FastAPI)
+                │  HTTP (FastAPI) + SSE
 ┌───────────────▼───────────────────────────────────────────────┐
-│ BACKEND  (FastAPI — this repo)                                 │
-│   /api/introspect → deterministic Odoo tools (no LLM)         │
-│   /api/chat       → REASONING via Claude Code (subscription)  │
+│ BACKEND  (FastAPI — src/sentinel/web/app.py)                  │
+│   /api/auth/*        → authentication (stdlib only, no deps)  │
+│   /api/introspect    → deterministic Odoo tools (no LLM)      │
+│   /api/chat[/stream] → REASONING via Claude Code              │
 └───────┬───────────────────────────────────┬───────────────────┘
         │ deterministic tools               │ reasoning engine
 ┌───────▼────────────────────┐   ┌──────────▼────────────────────┐
 │ Odoo tools (built)         │   │ Claude Code                    │
-│  rpc · introspect · scan   │   │  reads code (Read/Grep/Bash) + │
-│  later: flow + UI executors│   │  calls Odoo tools + reasons    │
-└────────────────────────────┘   │  guided by the "Odoo-QA" skill │
+│  rpc · introspect · scan   │   │  reads code (Read/Grep/Glob) + │
+│  investigate · deployment  │   │  reasons over System Map +     │
+└────────────────────────────┘   │  guided by the Odoo-QA skill   │
                                   └────────────────────────────────┘
    SUBSCRIPTION billing (flat) ── no ANTHROPIC_API_KEY needed
 ```
@@ -68,22 +69,15 @@ Claude Code can't know on its own: the **Odoo tools** and the **QA skill**.
 | Frontend | custom | custom **or** reuse Claude Code's UIs |
 | Unblocked today | needs API credits | **Yes — no key** |
 
-We keep a custom **frontend** either way (see below) — Claude Code changes the *engine*,
-not the UI.
-
 ---
 
-## The 3-phase build plan (revised)
+## The 3-phase build plan
 
 | Phase | Goal | Status |
 |-------|------|--------|
 | **Phase 1 — Understand + Frontend** | Odoo RPC tools (connect, introspect → System Map), addon source scan, **web UI** (chat + dashboard). The deterministic, no-LLM foundation. | ✅ **Built & running** |
-| **Phase 2 — Reason via Claude Code** | `/api/chat` + `/api/audit` + `sentinel audit` driven by the **Claude Code engine** (headless `claude -p`) + the **Odoo-QA skill**: reads the code + System Map and produces gap analysis, bug findings, and the **test plan** — a two-pass run that emits a human report **and** structured `findings.json` + `test_plan.json`. | ✅ **Built** |
-| **Phase 3 — Execute + Report** | RPC **flow executor** (`sentinel run-tests`): Claude Code generates executable op-sequences (create → call action → assert), run over XML-RPC against a **cloned DB** (or existing, opt-in). **Playwright UI crawl** (`sentinel run-ui`): logs into the web client and opens each view, capturing console/JS/network errors + screenshots. Both produce pass/fail reports. **Docker sandbox** still planned. | 🟡 Partial |
-
-> The old API-centric Phase 2 (`sentinel/llm`, prompts, `.env` key) is **retired** — the
-> reasoning moves to Claude Code. The Odoo introspection/scan already built is **reused** as
-> Claude Code's tools.
+| **Phase 2 — Reason via Claude Code** | `/api/chat` + `/api/audit` + `sentinel audit` driven by the **Claude Code engine** + the **Odoo-QA skill**: reads the code + System Map and produces gap analysis, bug findings, and the **test plan** — a two-pass run that emits a human report **and** structured `findings.json` + `test_plan.json`. | ✅ **Built** |
+| **Phase 3 — Execute + Report** | RPC **flow executor** (`sentinel run-tests`) + **Playwright UI crawl** (`sentinel run-ui`) built. **Docker sandbox** still planned. | 🟡 Partial |
 
 ---
 
@@ -91,54 +85,57 @@ not the UI.
 
 ```
 src/sentinel/
-  odoo/         rpc · introspect (System Map) · addon_scan · context · report · investigate · deployment   (deterministic tools)
+  odoo/         rpc · introspect (System Map) · addon_scan · context · report
+                investigate (2-hop live-data diagnosis) · deployment   (deterministic tools)
   engine/       claude_code (headless `claude -p`) · skill (Odoo-QA playbook)   (reasoning)
   audit/        runner (two-pass: report → structured findings) · models         (Phase 2 audit)
   execute/      generate · provision (clone) · runner (XML-RPC) · ui_playwright · report   (Phase 3)
-  web/          app.py (FastAPI) + static/index.html (chat + dashboard + PDF report download)
-  core/         models.py — the Finding schema the audit populates
+  web/          app.py (FastAPI) · auth.py (stdlib auth, per-user sessions) · static/index.html
+  core/         models.py — the Finding schema
   cli.py        sentinel web | introspect | scan-addons | audit | run-tests | run-ui
 tests/unit/     Odoo-layer + audit-parser + executor tests
+skills/odoo-qa/SKILL.md   the testing playbook (anti-hallucination rules + auto-discovery protocol)
 ```
 
-The web UI's **Understand** button calls the real Odoo introspection live; the **chat**
-panel is wired to Claude Code (with a mock fallback so the UI is alive before Claude Code
-is connected). The **Report** button streams a functional flow report and auto-downloads it
-as a text-extractable PDF.
+Key capabilities in the current build:
+- **Mode-picker chat UI** — five guided modes (Understand, Logic/UI Gaps, Code Errors, Report, General Question) with a ↺ Switch button; no raw action buttons
+- **Authentication** — login page, first-run admin setup, per-user session isolation, admin user management
+- **Understand mode** — type a module name to introspect it directly from chat; auto-triggers if module field is pre-filled
+- **Logic/UI Gaps mode** — routes to live-data investigation (`/api/investigate/stream`)
+- **Code Errors mode** — checks addon path, triggers full source audit
+- **Report mode** — scope picker (whole chat / last conversation / new topic), auto-PDF on any "report on X" phrase
+- **General Question mode** — routes to flow explanation (`/api/flow/stream`) grounded in real records
+- **Deep investigation** — stock moves (product variant + `sale_line_id`) and invoice lines fetched automatically; precise timeline from chatter
+- **Addons root support** — path can point to a single addon folder or a root folder containing multiple addons
 
 ---
 
 ## Run it
 
 ```powershell
-cd C:\Users\vidyu\Desktop\sentinel-testing-agent
-.\.venv\Scripts\python.exe -m pip install -e .
+# 1. Create virtual environment and install
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# 1. start your Odoo instance (separate terminal, from the addon's project directory)
+# 2. Install and sign in to Claude Code (reasoning engine — one-time)
+npm install -g @anthropic-ai/claude-code
+claude          # sign in with the Claude subscription (NO ANTHROPIC_API_KEY needed)
 
-# 2. start Sentinel's web UI:
+# 3. Start Sentinel
 .\.venv\Scripts\sentinel.exe web        # -> http://127.0.0.1:8800
 ```
 
-Open `http://127.0.0.1:8800`, fill in the connection fields (Odoo URL, database, user, password,
-module name, and optionally the addon source path), then click **Understand** — the System Map
-fills in from the live instance. Then chat with it, or run a one-shot audit.
-
-To power the chat with real reasoning, install and sign in to the Claude Code CLI — the engine
-auto-detects it (no flag needed) and `/api/config` then reports `engine: claude-code`:
-```powershell
-npm install -g @anthropic-ai/claude-code
-claude          # sign in with the Claude subscription (NO ANTHROPIC_API_KEY needed)
-```
-Optional overrides: `SENTINEL_CLAUDE_PATH` (point at a specific `claude` binary) ·
-`SENTINEL_FORCE_SUBSCRIPTION=0` (keep `ANTHROPIC_API_KEY` in the engine env instead of stripping it).
+Open `http://127.0.0.1:8800`. On first run, create an admin account. Fill in the connection
+bar (Odoo URL, database, user, password, module name, and optionally the addon source path),
+then select **Understand a module** from the mode picker.
 
 Connection defaults can be set via environment variables:
 ```powershell
-$env:SENTINEL_ODOO_URL    = "http://localhost:8069"
-$env:SENTINEL_ODOO_DB     = "my_db"
-$env:SENTINEL_ODOO_USER   = "admin"
-$env:SENTINEL_MODULE      = "my_module"
+$env:SENTINEL_ODOO_URL      = "http://localhost:8069"
+$env:SENTINEL_ODOO_DB       = "my_db"
+$env:SENTINEL_ODOO_USER     = "admin"
+$env:SENTINEL_MODULE        = "my_module"
+$env:SENTINEL_ADDONS        = "C:\path\to\addons"
 ```
 
 ---
@@ -154,5 +151,5 @@ $env:SENTINEL_MODULE      = "my_module"
 ## Tech stack
 
 Python · FastAPI (backend + web UI) · **Claude Code** (headless `claude -p`, reasoning) ·
-XML-RPC (Odoo) · later Playwright + Docker sandbox (Phase 3 execution) — frontend is HTML/JS
-today, can move to React.
+XML-RPC (Odoo) · stdlib-only auth (pbkdf2_hmac + HMAC-SHA256 tokens) · Playwright (Phase 3 UI crawl) ·
+Docker sandbox (Phase 3, planned) — frontend is HTML/JS today, can move to React.
